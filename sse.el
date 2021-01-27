@@ -31,15 +31,13 @@
 (defun sse-parse (sse-string)
   "Parse SSE-STRING into an alist.
 Return nil if it can't be parsed"
-  (save-match-data
-    ;; Strip leading and trailing newlines
-    (let* ((sse-string (replace-regexp-in-string "\\(\n\\|\r\\)*\\'" "" sse-string))
-           (sse-string (replace-regexp-in-string "\\`\\(\n\\|\r\\)*" "" sse-string)))
-      (if (= (length sse-string) 0) nil
-        ;;(message "SSE string: %s "sse-string)
-        (delq nil
-              (seq-map #'sse-parse-line
-                       (split-string sse-string "\n\\|\r")))))))
+  ;; Strip leading and trailing newlines
+  (let* ((sse-string (replace-regexp-in-string "\\(\n\\|\r\\)*\\'" "" sse-string))
+         (sse-string (replace-regexp-in-string "\\`\\(\n\\|\r\\)*" "" sse-string)))
+    (if (= (length sse-string) 0) nil
+      (delq nil
+            (seq-map #'sse-parse-line
+                     (split-string sse-string "\n\\|\r"))))))
 
 
 (defun sse-parse-line (sse-line)
@@ -58,6 +56,7 @@ Return nil if it's a comment or can't be parsed."
 (defun sse-listener (url callback)
   "Listen to URL for SSEs, calling CALLBACK on each one.
 Uses `url-retrive' internally, so the relevent variables apply"
+  ;; TODO: Handle SSE stream end better.
   (let ((buff (url-retrieve url (lambda (&rest _) (message (concat url ": Stream ended"))))))
     (with-current-buffer buff
       (make-variable-buffer-local 'sse-handler)
@@ -86,6 +85,7 @@ Uses `url-retrive' internally, so the relevent variables apply"
 
 
 (advice-add #'url-http-generic-filter :after #'url-filter-advice)
+
 
 (provide 'sse)
 
