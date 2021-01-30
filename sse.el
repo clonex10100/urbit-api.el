@@ -34,16 +34,6 @@
     (let ((string (replace-regexp-in-string "\\(\n\\|\r\\)*\\'" "" string)))
       (replace-regexp-in-string "\\`\\(\n\\|\r\\)*" "" string))))
 
-(defun sse--parse (sse-string)
-  "Parse SSE-STRING into an alist.
-Return nil if it can't be parsed"
-  ;; Strip leading and trailing newlines
-  (let ((sse-string (sse--strip-outer-newlines sse-string)))
-    (if (= (length sse-string) 0) nil
-      (delq nil
-            (seq-map #'sse--parse-line
-                     (split-string sse-string "\n\\|\r"))))))
-
 (defun sse--parse-line (sse-line)
   "Parse SSE-LINE into a pair of name and data.
 Return nil if it's a comment or can't be parsed."
@@ -55,36 +45,47 @@ Return nil if it's a comment or can't be parsed."
               (data (substring sse-line (match-end 0))))
           (cons (intern name) data))))))
 
+(defun sse--parse (sse-string)
+  "Parse SSE-STRING into an alist.
+Return nil if it can't be parsed."
+  ;; Strip leading and trailing newlines
+  (let ((sse-string (sse--strip-outer-newlines sse-string)))
+    (if (= (length sse-string) 0) nil
+      (delq nil
+            (seq-map #'sse--parse-line
+                     (split-string sse-string "\n\\|\r"))))))
+
 (defun sse-listener (url callback)
   "Listen to URL for SSEs, calling CALLBACK on each one.
-Uses `url-retrive' internally, so the relevent variables apply"
-  ;; TODO: Handle SSE stream end better.
-  (let ((buff (url-retrieve url (lambda (&rest _) (message (concat url ": Stream ended"))))))
+Uses `url-retrive' internally, so the relevent variables apply."
+  (let* ((url-request-method "GET")
+         ;; TODO: More robust stream end callback. Kill buffer etc.
+         (buff (url-retrieve url (lambda (&rest _) (message (concat url ": Stream ended"))))))
     (with-current-buffer buff
-      (make-variable-buffer-local 'sse-handler)
-      (let ((delim-regex ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
-            (passed-header nil) ;; The header isn't an event, so we need to skip the first chunk
-            (event-start (point-min)))
-        (setq sse-handler
-              (lambda ()
-                (save-excursion
-                  (save-match-data
-                    (goto-char event-start)
-                    (while (re-search-forward delim-regex nil t)
-                      (if (not passed-header) (setq passed-header t)
-                        (when-let ((sse-event (sse--parse (buffer-substring event-start (point)))))
-                          (funcall callback sse-event)))
-                      (setq event-start (point)))))))))))
+      ;; Would a connection local variable work here?
+      (setq-local sse-handler-function
+                  (let ((delim-regex ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
+                        (passed-header nil) ;; The header isn't an event, so we need to skip the first chunk
+                        (event-start (point-min)))
+                    (lambda ()
+                      (save-excursion
+                        (save-match-data
+                          (goto-char event-start)
+                          (while (re-search-forward delim-regex nil t)
+                            (if (not passed-header) (setq passed-header t)
+                              (when-let ((sse-event (sse--parse (buffer-substring event-start (point)))))
+                                (funcall callback sse-event)))
+                            (setq event-start (point))))))))
+      buff)))
 
-(defun url--filter-advice (proc data)
-  "Advice for `url-http-generic-filter' to run SSE handler code."
+(defun sse--url-filter-advice (proc _)
+  "Run buffer local variable `sse-handler-function' if it is bound."
   (when (process-buffer proc)
     (with-current-buffer (process-buffer proc)
-      (when (boundp 'sse-handler)
-        (funcall sse-handler)))))
+      (when (boundp 'sse-handler-function)
+        (funcall sse-handler-function)))))
 
-
-(advice-add #'url-http-generic-filter :after #'url--filter-advice)
+(advice-add #'url-http-generic-filter :after #'sse--url-filter-advice)
 
 
 (provide 'sse)
