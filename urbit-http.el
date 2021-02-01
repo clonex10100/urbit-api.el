@@ -142,9 +142,12 @@ Optionally calls CALLBACK on completion."
       :data (json-encode object)
       :parser 'json-read
       :encoding 'utf-8
-      :complete (cl-function
-                 (lambda (&key response &allow-other-keys)
-                   (funcall callback response))))
+      :success (cl-function
+                (lambda (&key data &allow-other-keys)
+                  (funcall callback data)))
+      :error (cl-function
+              (lambda (&rest args &key error-thrown &allow-other-keys)
+                (funcall callback nil))))
     (car (aio-chain promise))))
 
 (aio-defun urbit--send-message (action &optional data)
@@ -221,31 +224,43 @@ QUIT-CALLBACK is called on quit."
    (urbit--send-message "delete")))
 
 (aio-defun urbit-scry (app path)
-  (let* ((url-request-extra-headers `(("Content-Type" . "application/json")))
-         (url (concat urbit-url "/~/scry/" app path ".json"))
-         (buff (cdr (aio-await (aio-url-retrieve url)))))
-    (with-current-buffer buff
-      (save-match-data
-        ;; Skip the header
-        (re-search-forward ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
-        (prog1 (json-parse-buffer :object-type 'alist)
-          (kill-buffer))))))
+  (let* ((p (aio-make-callback))
+         (callback (car p))
+         (promise (cdr p)))
+    (request (concat urbit-url "/~/scry/" app path ".json")
+      :type "GET"
+      :headers `(("Content-Type" . "application/json"))
+      :parser 'json-read
+      :encoding 'utf-8
+      :success (cl-function
+                (lambda (&key data &allow-other-keys)
+                  (funcall callback data)))
+      :error (cl-function
+              (lambda (&rest args &key error-thrown &allow-other-keys)
+                (funcall callback nil))))
+    (car (aio-chain promise))))
 
 (aio-defun urbit-spider (input-mark output-mark thread-name data)
-  (let ((url-request-method "POST")
-        (url-request-extra-headers `(("Content-Type" . "application/json")))
-        (url-request-data (json-serialize data))
-        (url (format "%s/spider/%s/%s/%s.json"
+  (let* ((p (aio-make-callback))
+         (callback (car p))
+         (promise (cdr p)))
+    (request (format "%s/spider/%s/%s/%s.json"
                      urbit-url
                      input-mark
                      thread-name
-                     output-mark)))
-    (let ((buff (cdr (aio-await (aio-url-retrieve url)))))
-      (with-current-buffer buff
-        (save-match-data
-          (re-search-forward ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
-          (prog1 (json-parse-buffer :object-type 'alist)
-            (kill-buffer)))))))
+                     output-mark)
+      :type "POST"
+      :headers `(("Content-Type" . "application/json"))
+      :data (json-encode data)
+      :parser 'json-read
+      :encoding 'utf-8
+      :success (cl-function
+                (lambda (&key data &allow-other-keys)
+                  (funcall callback data)))
+      :error (cl-function
+              (lambda (&rest args &key error-thrown &allow-other-keys)
+                (funcall callback nil))))
+    (car (aio-chain promise))))
 
 (defun urbit--handle-poke-response (data)
   (let-alist data
