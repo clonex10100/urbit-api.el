@@ -40,7 +40,7 @@ Return nil if it's a comment or can't be parsed."
   ;; If it starts with a colon it's a comment, ignore it
   (if (= (elt sse-line 0) ?:) nil
     (save-match-data
-      (when-let ((match (string-match ".*: " sse-line)))
+      (when-let ((match (string-match ".*?: " sse-line)))
         (let ((name (substring sse-line 0 (- (match-end 0) 2)))
               (data (substring sse-line (match-end 0))))
           (cons (intern name) data))))))
@@ -53,7 +53,7 @@ Return nil if it can't be parsed."
     (if (= (length sse-string) 0) nil
       (delq nil
             (seq-map #'sse--parse-line
-                     (split-string sse-string "\n\\|\r"))))))
+                     (split-string sse-string "\n\\|\r\\'"))))))
 
 (defun sse-listener (url callback)
   "Listen to URL for SSEs, calling CALLBACK on each one.

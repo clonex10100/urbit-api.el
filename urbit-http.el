@@ -69,8 +69,6 @@ Should be set to the current unix time plus a 6 digit random hex string.")
 (defvar urbit--subscription-handlers '()
   "Alist of subscription id's to handler functions")
 
-;; TODO: store SSE process buffer
-
 (defmacro urbit--let-if-nil (spec &rest body)
   "Bind variables according to SPEC only if they are nil, then evaluate BODY.
  Useful for assigning defaults to optional args."
@@ -109,8 +107,6 @@ Should be set to the current unix time plus a 6 digit random hex string.")
   (let ((url-request-method "POST")
         (url-request-data (concat "password=" urbit-code))
         (login-url (concat urbit-url "/~/login")))
-    (message login-url)
-    (message url-request-data)
     (with-current-buffer (url-retrieve-synchronously login-url)
       (goto-char (point-min))
       (search-forward "set-cookie: ")
@@ -149,77 +145,117 @@ Optionally calls CALLBACK on completion."
   "Send a message to urbit with ACTION and DATA. Return id of sent message."
   (let ((id (urbit--event-id)))
     (urbit--put-object urbit--channel-url
-                     (vector 
-                      `((id . ,id)
-                        (action . ,action)
-                        ,@data)))
+                       `[((id . ,id)
+                          (action . ,action)
+                          ,@data)])
     id))
 
-;; TODO: needs handles
+(defun urbit-scry (app path callback)
+  (let ((url-request-extra-headers `(("Content-Type" . "application/json")
+                                     ("Cookie" . ,urbit--cookie))))
+    (urbit--log (concat urbit-url "/~/scry/" app path ".json"))
+    (url-retrieve (concat urbit-url "/~/scry/" app path ".json")
+                  (lambda (x)
+                    (switch-to-buffer (buffer-name))
+                    (funcall callback
+                             (json-parse-buffer :object-type 'alist))))))
+
+;; TODO: spider, delete
+(defun urbit-ack (event-id)
+  "Acknowledge EVENT-ID."
+  (urbit--log "Acking %s" event-id)
+  (urbit--send-message "ack" `((event-id . ,event-id))))
+
 (defun urbit-poke (app mark data &optional ok-callback err-callback)
   "Pokes APP with MARK DATA.
 If OK-CALLBACK and ERR-CALLBACK are passed, the correct one will
 be called when a poke response is recieved."
   ;; TODO: probably should set the callbacks before doing
-  (let ((id (urbit--send-message "poke" `((ship . ,urbit-ship)
-                                          (app . ,app)
-                                          (mark . , mark)
-                                          (json . ,data)))))
+  (let ((id (urbit--send-message "poke"
+                                 `((ship . ,urbit-ship)
+                                   (app . ,app)
+                                   (mark . , mark)
+                                   (json . ,data)))))
     (urbit--let-if-nil ((ok-callback
-                         (lambda () (urbit--log "Poke %s is ok." id)))
+                         (lambda ()
+                           (urbit--log "Poke %s is ok" id)))
                         (err-callback
                          (lambda (err)
-                           (urbit--log "Error: %s For poke: %s." err id))))
-      (add-to-list 'urbit--poke-handlers `(,id (ok . ,ok-callback) (err . ,err-callback))))))
+                           (urbit--log "Poke %s error: %s" id err))))
+      (add-to-list 'urbit--poke-handlers
+                   `(,id (ok . ,ok-callback)
+                         (err . ,err-callback))))))
 
-;; TODO: needs handles
 (defun urbit-subscribe (app path &optional
                             event-callback err-callback quit-callback)
   "Subscribe to an APP on PATH.
 EVENT-CALLBACK for each event recieved with the event as argument.
 ERR-CALLBACK is called on errors with the error as argument.
 QUIT-CALLBACK is called on quit."
-  (let ((id (urbit--send-message "subscribe" `((ship . ,urbit-ship)
-                                               (app . ,app)
-                                               (path . ,path)))))
-    (urbit--let-if-nil ((event-callback (lambda (event)))
-                        (err-callback (lambda (err)))
-                        (quit-callback (lambda ())))
+  (let ((id (urbit--send-message "subscribe"
+                                 `((ship . ,urbit-ship)
+                                   (app . ,app)
+                                   (path . ,path)))))
+    (urbit--let-if-nil ((event-callback
+                         (lambda (data)
+                           (urbit--log "Subscription %s event: %s" id event)))
+                        (err-callback
+                         (lambda (err)
+                           (urbit--log "Subscription %s error: %s" id err)))
+                        (quit-callback
+                         (lambda (data)
+                           (urbit--log "Subscription %s quit: %s" id data))))
       (add-to-list 'urbit--subscription-handlers
-                   `(,id (event ,event-callback)
-                         (err ,err-callback)
-                         (quit ,quit-callback))))))
+                   `(,id (event . ,event-callback)
+                         (err . ,err-callback)
+                         (quit . ,quit-callback))))))
 
 (defun urbit-unsubscribe (subscription)
   "Unsubscribe from SUBSCRIPTION."
-  (urbit--send-message "unsubscribe" `((subscription . ,subscription))))
+  (urbit--send-message "unsubscribe"
+                       `((subscription . ,subscription))))
 
-(defun urbit-ack (event-id)
-  "Acknowledge EVENT-ID."
-  (urbit--log "Acking %s" event-id)
-  (urbit--send-message "ack" `((event-id . ,event-id))))
 
 (defun urbit--handle-poke-response (data)
   (let-alist data
     (let ((handlers (alist-get .id urbit--poke-handlers)))
-      (pcase data
-        ((pred (assq 'ok))
-         (funcall (alist-get 'ok handlers)))
-        ((pred (assq 'err))
-         (funcall (alist-get 'err handlers) .err))
-        (-- (urbit--log "Invalid poke response."))))))
+      (cond
+       (.ok (funcall (alist-get 'ok handlers)))
+       (.err (funcall (alist-get 'err handlers) .err))
+       (t (urbit--log "Invalid poke response.")))
+      (setq urbit--poke-handlers
+            (assq-delete-all .id urbit--poke-handlers)))))
+
+(defun urbit--handle-sub-response (data)
+  (let-alist data
+    (let ((handlers (alist-get .id urbit--subscription-handlers)))
+      (pcase .response
+        ((and (or "subscribe" "poke")
+              (guard .err))
+         (funcall (alist-get 'err handlers) .err)
+         (setq urbit--subscription-handlers
+               (assq-delete-all .id urbit--subscription-handlers)))
+        ("diff"
+         (funcall (alist-get 'event handlers) .json))
+        ("quit"
+         (funcall (alist-get 'quit handlers) .json)
+         (setq urbit--subscription-handlers
+               (assq-delete-all .id urbit--subscription-handlers)))
+        (--- (urbit--log "Invalid sub response."))))))
 
 (defun urbit--sse-callback (event)
   "Handle server sent EVENTs."
   (urbit--log "SSE recieved: %s" event)
-  (let-alist event
-    (urbit-ack (string-to-number .id))
-    (let ((data (json-parse-string .data :object-type 'alist)))
-      (pcase (alist-get 'response data)
-        ("poke" (urbit--handle-poke-response data))
-        (-- (urbit--log "Unknown data"))))))
-
-;; TODO: close connection
+  (urbit-ack (string-to-number (alist-get 'id event)))
+  (let* ((data (json-parse-string (alist-get 'data event)
+                                  :object-type 'alist)))
+    (let-alist data
+      (cond ((and (string= .response "poke")
+                  (assq .id urbit--poke-handlers))
+             (urbit--handle-poke-response data))
+            ((assq .id urbit--subscription-handlers)
+             (urbit--handle-sub-response data))
+            (t (urbit--log "Got response for untracked id: %s" .id))))))
 
 ;;
 ;; Application layer
@@ -234,6 +270,10 @@ QUIT-CALLBACK is called on quit."
 
 (defun hello-world ()
   (urbit-helm-hi "Hello, World!"))
+
+(defun gozod ()
+  (urbit-init "http://localhost:8080" "lidlut-tabwed-pillex-ridrup")
+  (urbit-connect))
 
 (defun gozod ()
   (urbit-init "http://localhost:8080" "lidlut-tabwed-pillex-ridrup")
