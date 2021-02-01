@@ -93,6 +93,10 @@ Should be set to the current unix time plus a 6 digit random hex string.")
   "Generate a random N digit hexadecimal string."
   (format "%x" (random (expt 16 n))))
 
+(defun urbit--event-id ()
+  "Get id for next event."
+  (setq urbit--last-event-id (+ urbit--last-event-id 1)))
+
 (defun urbit-init (url code)
   "Initialize urbit-http with URL and CODE."
   (setq urbit-url url)
@@ -123,22 +127,17 @@ Should be set to the current unix time plus a 6 digit random hex string.")
     (kill-buffer urbit--sse-buff))
   (setq urbit--sse-buff (sse-listener urbit--channel-url #'urbit--sse-callback)))
 
-(defun urbit--event-id ()
-  "Get id for next event."
-  (setq urbit--last-event-id (+ urbit--last-event-id 1)))
-
 (aio-defun urbit--put-object (url object)
   "Asynchronously send a put request to URL with OBJECT as the request data.
 Optionally calls CALLBACK on completion."
   (let ((url-request-method "PUT")
-        (url-request-extra-headers `(("Content-Type" . "application/json")
-                                     ("Cookie" . ,urbit--cookie)))
+        (url-request-extra-headers `(("Content-Type" . "application/json")))
         (url-request-data (json-serialize object)))
     (let ((resp (aio-await (aio-url-retrieve url))))
       ;; TODO: error catching
       (kill-buffer (cdr resp)))))
 
-(aio-defun urbit--send-message (action data)
+(aio-defun urbit--send-message (action &optional data)
   "Send a message to urbit with ACTION and DATA. Return id of sent message."
   (let ((id (urbit--event-id)))
     (urbit--put-object urbit--channel-url
@@ -147,18 +146,6 @@ Optionally calls CALLBACK on completion."
                           ,@data)])
     id))
 
-(aio-defun urbit-scry (app path)
-  (let ((url-request-extra-headers `(("Content-Type" . "application/json")
-                                     ("Cookie" . ,urbit--cookie))))
-    (let ((buff (cdr (aio-await (aio-url-retrieve (concat urbit-url "/~/scry/" app path ".json"))))))
-      (with-current-buffer buff
-        (save-match-data
-          ;; Skip the header
-          (re-search-forward ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
-          (prog1 (json-parse-buffer :object-type 'alist)
-            (kill-buffer)))))))
-
-;; TODO: spider, delete
 (aio-defun urbit-ack (event-id)
   "Acknowledge EVENT-ID."
   (aio-await (urbit--send-message "ack" `((event-id . ,event-id)))))
@@ -183,8 +170,12 @@ be called when a poke response is recieved."
                    `(,id (ok . ,ok-callback)
                          (err . ,err-callback))))))
 
-(aio-defun urbit-subscribe (app path &optional
-                            event-callback err-callback quit-callback)
+(aio-defun urbit-subscribe (app
+                            path
+                            &optional
+                            event-callback
+                            err-callback
+                            quit-callback)
   "Subscribe to an APP on PATH.
 EVENT-CALLBACK for each event recieved with the event as argument.
 ERR-CALLBACK is called on errors with the error as argument.
@@ -214,6 +205,36 @@ QUIT-CALLBACK is called on quit."
    (urbit--send-message "unsubscribe"
                         `((subscription . ,subscription)))))
 
+(aio-defun urbit-delete ()
+  "Delete current channel connection."
+  (aio-await
+   (urbit--send-message "delete")))
+
+(aio-defun urbit-scry (app path)
+  (let ((url-request-extra-headers `(("Content-Type" . "application/json")))
+        (url (concat urbit-url "/~/scry/" app path ".json")))
+    (with-current-buffer (cdr (aio-await (aio-url-retrieve )))
+      (save-match-data
+        ;; Skip the header
+        (re-search-forward ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
+        (prog1 (json-parse-buffer :object-type 'alist)
+          (kill-buffer))))))
+
+(aio-defun urbit-spider (input-mark output-mark thread-name data)
+  (let ((url-request-method "POST")
+        (url-request-extra-headers `(("Content-Type" . "application/json")))
+        (url-request-data (json-serialize data))
+        (url (format "%s/spider/%s/%s/%s.json"
+                     urbit-url
+                     input-mark
+                     thread-name
+                     output-mark)))
+    (let ((buff (cdr (aio-await (aio-url-retrieve url)))))
+      (with-current-buffer buff
+        (save-match-data
+          (re-search-forward ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
+          (prog1 (json-parse-buffer :object-type 'alist)
+            (kill-buffer)))))))
 
 (defun urbit--handle-poke-response (data)
   (let-alist data
@@ -225,7 +246,7 @@ QUIT-CALLBACK is called on quit."
       (setq urbit--poke-handlers
             (assq-delete-all .id urbit--poke-handlers)))))
 
-(defun urbit--handle-sub-response (data)
+(defun urbit--handle-subscription-response (data)
   (let-alist data
     (let ((handlers (alist-get .id urbit--subscription-handlers)))
       (pcase .response
@@ -240,7 +261,7 @@ QUIT-CALLBACK is called on quit."
          (funcall (alist-get 'quit handlers) .json)
          (setq urbit--subscription-handlers
                (assq-delete-all .id urbit--subscription-handlers)))
-        (--- (urbit--log "Invalid sub response."))))))
+        (--- (urbit--log "Invalid subscription response."))))))
 
 (defun urbit--sse-callback (event)
   "Handle server sent EVENTs."
@@ -253,34 +274,10 @@ QUIT-CALLBACK is called on quit."
                   (assq .id urbit--poke-handlers))
              (urbit--handle-poke-response data))
             ((assq .id urbit--subscription-handlers)
-             (urbit--handle-sub-response data))
+             (urbit--handle-subscription-response data))
             (t (urbit--log "Got response for untracked id: %s" .id))))))
 
-;;
-;; Application layer
-;;
-
-(defun urbit-helm-hi (msg)
-  (urbit-poke "hood" "helm-hi" msg))
-
-;;
-;; Debugging tools
-;;
-
-(defun hello-world ()
-  (urbit-helm-hi "Hello, World!"))
-
-(defun gozod ()
-  (urbit-init "http://localhost:8080" "lidlut-tabwed-pillex-ridrup")
-  (urbit-connect))
-
-(defun gozod ()
-  (urbit-init "http://localhost:8080" "lidlut-tabwed-pillex-ridrup")
-  (urbit-connect)
-  (hello-world)
-  (urbit-start-sse))
-
-;; TODO: disconnect function
+;; TODO: disconnect function/other cleanup
 
 (provide 'urbit-http)
 
