@@ -211,9 +211,10 @@ QUIT-CALLBACK is called on quit."
    (urbit--send-message "delete")))
 
 (aio-defun urbit-scry (app path)
-  (let ((url-request-extra-headers `(("Content-Type" . "application/json")))
-        (url (concat urbit-url "/~/scry/" app path ".json")))
-    (with-current-buffer (cdr (aio-await (aio-url-retrieve )))
+  (let* ((url-request-extra-headers `(("Content-Type" . "application/json")))
+         (url (concat urbit-url "/~/scry/" app path ".json"))
+         (buff (cdr (aio-await (aio-url-retrieve url)))))
+    (with-current-buffer buff
       (save-match-data
         ;; Skip the header
         (re-search-forward ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
