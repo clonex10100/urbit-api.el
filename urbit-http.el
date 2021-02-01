@@ -30,6 +30,7 @@
 
 (require 'url)
 (require 'sse)
+(require 'request)
 (require 'aio)
 
 
@@ -130,12 +131,21 @@ Should be set to the current unix time plus a 6 digit random hex string.")
 (aio-defun urbit--put-object (url object)
   "Asynchronously send a put request to URL with OBJECT as the request data.
 Optionally calls CALLBACK on completion."
-  (let ((url-request-method "PUT")
-        (url-request-extra-headers `(("Content-Type" . "application/json")))
-        (url-request-data (json-serialize object)))
-    (let ((resp (aio-await (aio-url-retrieve url))))
-      ;; TODO: error catching
-      (kill-buffer (cdr resp)))))
+  (let* ((p (aio-make-callback))
+         (callback (car p))
+         (promise (cdr p)))
+    (urbit--log "cookie %s" urbit--cookie)
+    (urbit--log "%S" (json-encode object))
+    (request url
+      :type "PUT"
+      :headers `(("Content-Type" . "application/json"))
+      :data (json-encode object)
+      :parser 'json-read
+      :encoding 'utf-8
+      :complete (cl-function
+                 (lambda (&key response &allow-other-keys)
+                   (funcall callback response))))
+    (car (aio-chain promise))))
 
 (aio-defun urbit--send-message (action &optional data)
   "Send a message to urbit with ACTION and DATA. Return id of sent message."
