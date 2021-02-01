@@ -30,6 +30,7 @@
 
 (require 'url)
 (require 'sse)
+(require 'aio)
 
 
 ;;
@@ -126,22 +127,18 @@ Should be set to the current unix time plus a 6 digit random hex string.")
   "Get id for next event."
   (setq urbit--last-event-id (+ urbit--last-event-id 1)))
 
-;; TODO: handle errors in put
-(defun urbit--put-object (url object &optional callback)
+(aio-defun urbit--put-object (url object)
   "Asynchronously send a put request to URL with OBJECT as the request data.
 Optionally calls CALLBACK on completion."
   (let ((url-request-method "PUT")
         (url-request-extra-headers `(("Content-Type" . "application/json")
                                      ("Cookie" . ,urbit--cookie)))
         (url-request-data (json-serialize object)))
-    (url-retrieve url (if callback callback
-                        (lambda (x)
-                          (message "Object: %s" object)
-                          (message "HTTP status: %s" x)
-                          (message "Buffer: ")
-                          (message (buffer-string)))))))
+    (let ((resp (aio-await (aio-url-retrieve url))))
+      ;; TODO: error catching
+      (kill-buffer (cdr resp)))))
 
-(defun urbit--send-message (action data)
+(aio-defun urbit--send-message (action data)
   "Send a message to urbit with ACTION and DATA. Return id of sent message."
   (let ((id (urbit--event-id)))
     (urbit--put-object urbit--channel-url
@@ -150,32 +147,32 @@ Optionally calls CALLBACK on completion."
                           ,@data)])
     id))
 
-(defun urbit-scry (app path callback)
+(aio-defun urbit-scry (app path)
   (let ((url-request-extra-headers `(("Content-Type" . "application/json")
                                      ("Cookie" . ,urbit--cookie))))
-    (urbit--log (concat urbit-url "/~/scry/" app path ".json"))
-    (url-retrieve (concat urbit-url "/~/scry/" app path ".json")
-                  (lambda (x)
-                    (switch-to-buffer (buffer-name))
-                    (funcall callback
-                             (json-parse-buffer :object-type 'alist))))))
+    (let ((buff (cdr (aio-await (aio-url-retrieve (concat urbit-url "/~/scry/" app path ".json"))))))
+      (with-current-buffer buff
+        (save-match-data
+          ;; Skip the header
+          (re-search-forward ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
+          (prog1 (json-parse-buffer :object-type 'alist)
+            (kill-buffer)))))))
 
 ;; TODO: spider, delete
-(defun urbit-ack (event-id)
+(aio-defun urbit-ack (event-id)
   "Acknowledge EVENT-ID."
-  (urbit--log "Acking %s" event-id)
-  (urbit--send-message "ack" `((event-id . ,event-id))))
+  (aio-await (urbit--send-message "ack" `((event-id . ,event-id)))))
 
-(defun urbit-poke (app mark data &optional ok-callback err-callback)
+(aio-defun urbit-poke (app mark data &optional ok-callback err-callback)
   "Pokes APP with MARK DATA.
 If OK-CALLBACK and ERR-CALLBACK are passed, the correct one will
 be called when a poke response is recieved."
-  ;; TODO: probably should set the callbacks before doing
-  (let ((id (urbit--send-message "poke"
-                                 `((ship . ,urbit-ship)
-                                   (app . ,app)
-                                   (mark . , mark)
-                                   (json . ,data)))))
+  (let ((id (aio-await
+             (urbit--send-message "poke"
+                                  `((ship . ,urbit-ship)
+                                    (app . ,app)
+                                    (mark . , mark)
+                                    (json . ,data))))))
     (urbit--let-if-nil ((ok-callback
                          (lambda ()
                            (urbit--log "Poke %s is ok" id)))
@@ -186,16 +183,17 @@ be called when a poke response is recieved."
                    `(,id (ok . ,ok-callback)
                          (err . ,err-callback))))))
 
-(defun urbit-subscribe (app path &optional
+(aio-defun urbit-subscribe (app path &optional
                             event-callback err-callback quit-callback)
   "Subscribe to an APP on PATH.
 EVENT-CALLBACK for each event recieved with the event as argument.
 ERR-CALLBACK is called on errors with the error as argument.
 QUIT-CALLBACK is called on quit."
-  (let ((id (urbit--send-message "subscribe"
-                                 `((ship . ,urbit-ship)
-                                   (app . ,app)
-                                   (path . ,path)))))
+  (let ((id (aio-await
+             (urbit--send-message "subscribe"
+                                  `((ship . ,urbit-ship)
+                                    (app . ,app)
+                                    (path . ,path))))))
     (urbit--let-if-nil ((event-callback
                          (lambda (data)
                            (urbit--log "Subscription %s event: %s" id event)))
@@ -210,10 +208,11 @@ QUIT-CALLBACK is called on quit."
                          (err . ,err-callback)
                          (quit . ,quit-callback))))))
 
-(defun urbit-unsubscribe (subscription)
+(aio-defun urbit-unsubscribe (subscription)
   "Unsubscribe from SUBSCRIPTION."
-  (urbit--send-message "unsubscribe"
-                       `((subscription . ,subscription))))
+  (aio-await
+   (urbit--send-message "unsubscribe"
+                        `((subscription . ,subscription)))))
 
 
 (defun urbit--handle-poke-response (data)
