@@ -55,28 +55,37 @@ Return nil if it can't be parsed."
             (seq-map #'sse--parse-line
                      (split-string sse-string "\n\\|\r\\'"))))))
 
+;; FIXME: Breaks on event spam
 (defun sse-listener (url callback)
   "Listen to URL for SSEs, calling CALLBACK on each one.
 Uses `url-retrive' internally, so the relevent variables apply."
   (let* ((url-request-method "GET")
          ;; TODO: More robust stream end callback. Kill buffer etc.
-         (buff (url-retrieve url (lambda (&rest _) (message (concat url ": Stream ended"))))))
+         (buff (url-retrieve url
+                             (lambda (&rest _)
+                               (message (concat url ": Stream ended"))))))
     (with-current-buffer buff
-      ;; Would a connection local variable work here?
       (setq-local sse-handler-function
-                  (let ((delim-regex ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
-                        (passed-header nil) ;; The header isn't an event, so we need to skip the first chunk
+                  (let ((delim-regex
+                         ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
+                        ;; The header isn't an event,
+                        ;; so we need to skip the first chunk
+                        (passed-header nil) 
                         (event-start (point-min)))
                     (lambda ()
                       (save-excursion
                         (save-match-data
+                          (urbit--log "Start: %s" event-start)
                           (goto-char event-start)
                           (while (re-search-forward delim-regex nil t)
                             (if (not passed-header) (setq passed-header t)
-                              (when-let ((sse-event (sse--parse (buffer-substring event-start (point)))))
+                              (when-let ((sse-event
+                                          (sse--parse
+                                           (buffer-substring event-start
+                                                             (point)))))
                                 (funcall callback sse-event)))
-                            (setq event-start (point))))))))
-      buff)))
+                            (setq event-start (point)))))))))
+    buff))
 
 (defun sse--url-filter-advice (proc _)
   "Run buffer local variable `sse-handler-function' if it is bound."
