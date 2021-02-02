@@ -68,8 +68,8 @@ Uses `url-retrive' internally, so the relevent variables apply."
       (setq-local sse-handler-function
                   (let ((delim-regex
                          ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)")
-                        ;; The header isn't an event,
-                        ;; so we need to skip the first chunk
+                        ;; The header isn't an event, so we need to
+                        ;; skip the first chunk
                         (passed-header nil) 
                         (event-start (point-min)))
                     (lambda ()
@@ -79,10 +79,9 @@ Uses `url-retrive' internally, so the relevent variables apply."
                           (goto-char event-start)
                           (while (re-search-forward delim-regex nil t)
                             (if (not passed-header) (setq passed-header t)
-                              (when-let ((sse-event
-                                          (sse--parse
-                                           (buffer-substring event-start
-                                                             (point)))))
+                              (when-let* ((sse-string (buffer-substring event-start
+                                                                        (point)))
+                                          (sse-event (sse--parse sse-string)))
                                 (funcall callback sse-event)))
                             (setq event-start (point)))))))))
     buff))

@@ -265,7 +265,6 @@ QUIT-CALLBACK is called on quit."
            (setq urbit--subscription-handlers
                  (assq-delete-all .id urbit--subscription-handlers))))
         ("diff"
-         (urbit--log "IT A DIFF")
          (funcall (alist-get 'event handlers) .json))
         ("quit"
          (funcall (alist-get 'quit handlers) .json)
