@@ -106,6 +106,8 @@ Should be set to the current unix time plus a 6 digit random hex string.")
                            "-"
                            (urbit--random-hex-string 6)))
   (setq urbit--last-event-id 0)
+  (setq urbit--poke-handlers nil)
+  (setq urbit--subscription-handlers nil)
   (setq urbit--channel-url (concat urbit-url "/~/channel/" urbit--uid)))
 
 (defun urbit-connect ()
@@ -128,35 +130,39 @@ Should be set to the current unix time plus a 6 digit random hex string.")
     (kill-buffer urbit--sse-buff))
   (setq urbit--sse-buff (sse-listener urbit--channel-url #'urbit--sse-callback)))
 
-(aio-defun urbit--put-object (url object)
-  "Asynchronously send a put request to URL with OBJECT as the request data.
-Optionally calls CALLBACK on completion."
-  (let* ((p (aio-make-callback))
+(defun urbit--request-wrapper (method url &optional data)
+  (let* ((p (aio-make-callback :once t))
+         (resolved nil)
          (callback (car p))
          (promise (cdr p)))
-    (urbit--log "cookie %s" urbit--cookie)
-    (urbit--log "%S" (json-encode object))
     (request url
-      :type "PUT"
+      :type method
       :headers `(("Content-Type" . "application/json"))
-      :data (json-encode object)
+      :data (when data (json-encode data))
       :parser 'json-read
       :encoding 'utf-8
       :success (cl-function
                 (lambda (&key data &allow-other-keys)
                   (funcall callback data)))
       :error (cl-function
-              (lambda (&rest args &key error-thrown &allow-other-keys)
-                (funcall callback nil))))
-    (car (aio-chain promise))))
+              (lambda (&rest args &key error-thrown &allow-oter-keys)
+                (funcall callback error-thrown)))
+      :complete (lambda (&rest _)
+                  (funcall callback nil)))
+    promise))
+
+(aio-defun urbit--put-object (url object)
+  "Asynchronously send a put request to URL with OBJECT as the request data.
+Optionally calls CALLBACK on completion."
+  (aio-await (urbit--request-wrapper "PUT" url object)))
 
 (aio-defun urbit--send-message (action &optional data)
   "Send a message to urbit with ACTION and DATA. Return id of sent message."
   (let ((id (urbit--event-id)))
-    (urbit--put-object urbit--channel-url
-                       `[((id . ,id)
-                          (action . ,action)
-                          ,@data)])
+    (aio-await (urbit--put-object urbit--channel-url
+                                  `[((id . ,id)
+                                     (action . ,action)
+                                     ,@data)]))
     id))
 
 (aio-defun urbit-ack (event-id)
@@ -181,7 +187,8 @@ be called when a poke response is recieved."
                            (urbit--log "Poke %s error: %s" id err))))
       (add-to-list 'urbit--poke-handlers
                    `(,id (ok . ,ok-callback)
-                         (err . ,err-callback))))))
+                         (err . ,err-callback)))
+      id)))
 
 (aio-defun urbit-subscribe (app
                             path
@@ -200,7 +207,7 @@ QUIT-CALLBACK is called on quit."
                                     (path . ,path))))))
     (urbit--let-if-nil ((event-callback
                          (lambda (data)
-                           (urbit--log "Subscription %s event: %s" id event)))
+                           (urbit--log "Subscription %s event: %s" id data)))
                         (err-callback
                          (lambda (err)
                            (urbit--log "Subscription %s error: %s" id err)))
@@ -210,7 +217,8 @@ QUIT-CALLBACK is called on quit."
       (add-to-list 'urbit--subscription-handlers
                    `(,id (event . ,event-callback)
                          (err . ,err-callback)
-                         (quit . ,quit-callback))))))
+                         (quit . ,quit-callback)))
+      id)))
 
 (aio-defun urbit-unsubscribe (subscription)
   "Unsubscribe from SUBSCRIPTION."
@@ -224,43 +232,18 @@ QUIT-CALLBACK is called on quit."
    (urbit--send-message "delete")))
 
 (aio-defun urbit-scry (app path)
-  (let* ((p (aio-make-callback))
-         (callback (car p))
-         (promise (cdr p)))
-    (request (concat urbit-url "/~/scry/" app path ".json")
-      :type "GET"
-      :headers `(("Content-Type" . "application/json"))
-      :parser 'json-read
-      :encoding 'utf-8
-      :success (cl-function
-                (lambda (&key data &allow-other-keys)
-                  (funcall callback data)))
-      :error (cl-function
-              (lambda (&rest args &key error-thrown &allow-other-keys)
-                (funcall callback nil))))
-    (car (aio-chain promise))))
+  (aio-await
+   (urbit--request-wrapper "GET"
+                           (concat urbit-url "/~/scry/" app path ".json"))))
 
 (aio-defun urbit-spider (input-mark output-mark thread-name data)
-  (let* ((p (aio-make-callback))
-         (callback (car p))
-         (promise (cdr p)))
-    (request (format "%s/spider/%s/%s/%s.json"
-                     urbit-url
-                     input-mark
-                     thread-name
-                     output-mark)
-      :type "POST"
-      :headers `(("Content-Type" . "application/json"))
-      :data (json-encode data)
-      :parser 'json-read
-      :encoding 'utf-8
-      :success (cl-function
-                (lambda (&key data &allow-other-keys)
-                  (funcall callback data)))
-      :error (cl-function
-              (lambda (&rest args &key error-thrown &allow-other-keys)
-                (funcall callback nil))))
-    (car (aio-chain promise))))
+  (aio-await
+   (urbit--request-wrapper "POST"
+                           (format "%s/spider/%s/%s/%s.json"
+                                   urbit-url
+                                   input-mark
+                                   thread-name
+                                   output-mark))))
 
 (defun urbit--handle-poke-response (data)
   (let-alist data
@@ -276,12 +259,13 @@ QUIT-CALLBACK is called on quit."
   (let-alist data
     (let ((handlers (alist-get .id urbit--subscription-handlers)))
       (pcase .response
-        ((and (or "subscribe" "poke")
-              (guard .err))
-         (funcall (alist-get 'err handlers) .err)
-         (setq urbit--subscription-handlers
-               (assq-delete-all .id urbit--subscription-handlers)))
+        ((or "subscribe" "poke")
+         (when .err
+           (funcall (alist-get 'err handlers) .err)
+           (setq urbit--subscription-handlers
+                 (assq-delete-all .id urbit--subscription-handlers))))
         ("diff"
+         (urbit--log "IT A DIFF")
          (funcall (alist-get 'event handlers) .json))
         ("quit"
          (funcall (alist-get 'quit handlers) .json)
@@ -291,8 +275,8 @@ QUIT-CALLBACK is called on quit."
 
 (defun urbit--sse-callback (event)
   "Handle server sent EVENTs."
-  (urbit--log "SSE recieved: %s" event)
-  (urbit-ack (string-to-number (alist-get 'id event)))
+  (urbit--log "SSE recieved: %S" event)
+  (aio-wait-for (urbit-ack (string-to-number (alist-get 'id event))))
   (let* ((data (json-parse-string (alist-get 'data event)
                                   :object-type 'alist)))
     (let-alist data
