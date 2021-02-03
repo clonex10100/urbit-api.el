@@ -116,6 +116,8 @@ Should be set to the current unix time plus a 6 digit random hex string.")
         (url-request-data (concat "password=" urbit-code))
         (login-url (concat urbit-url "/~/login")))
     (with-current-buffer (url-retrieve-synchronously login-url)
+      (urbit--temp-request-login login-url urbit-code)
+      (urbit--log "Login buff:\n%s" (buffer-string))
       (goto-char (point-min))
       (search-forward "set-cookie: ")
       (setq urbit--cookie (buffer-substring (point) (line-end-position)))
@@ -124,11 +126,19 @@ Should be set to the current unix time plus a 6 digit random hex string.")
 
 (defun urbit-start-sse ()
   ;; Make sure we don't have more than one sse buff
-  (when urbit--sse-buff
-    (when (get-buffer-process urbit--sse-buff)
-      (delete-process urbit--sse-buff))
-    (kill-buffer urbit--sse-buff))
   (setq urbit--sse-buff (sse-listener urbit--channel-url #'urbit--sse-callback)))
+
+(defun urbit--temp-request-login (url password)
+  "Login with `request' so it has cookies. fix and use urbit--cookie instead"
+  (request url
+    :type "POST"
+    :sync t
+    :data `(("password" . ,password))
+    :parser 'json-read
+    :encoding 'utf-8
+    :success (cl-function
+              (lambda (&key data &allow-other-keys)
+                (urbit--log "Request: %s" data)))))
 
 (defun urbit--request-wrapper (method url &optional data)
   (let* ((p (aio-make-callback :once t))
