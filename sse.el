@@ -135,6 +135,14 @@ Return nil if it can't be parsed."
     (sse--start-retrieve sse-buff)
     sse-buff))
 
+(aio-defun sse-aio-listener (url)
+  "Listen to URL for SSEs, returning a chain of promises."
+  (let* ((p (aio-make-callback))
+        (callback (car p))
+        (promise (cdr p)))
+    (sse-listener url callback)
+    promise))
+
 (defun sse--url-filter-advice (proc _)
   "Copy new data from PROC's buff to `sse--buff', if it exists."
   (when (process-buffer proc)
