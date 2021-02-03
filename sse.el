@@ -30,7 +30,7 @@
 (provide 'subr-x)
 
 (defconst sse-delim-regex ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)"
-  "Regex to delimit sse events.")
+  "Regex to delimit SSEs.")
 
 
 (defun sse--strip-outer-newlines (string)
@@ -61,7 +61,7 @@ Return nil if it can't be parsed."
                      (split-string sse-string "\n\\|\r\\'"))))))
 
 (defun sse--on-change (&rest _)
-  "Try to parse SSE's in buffer."
+  "Try to parse new SSEs in buffer."
   (save-excursion
     (save-match-data
       (goto-char (point-min))
@@ -77,8 +77,8 @@ Return nil if it can't be parsed."
             (funcall sse--callback sse-event)))
         (delete-region (point-min) (point))))))
 
-(defun sse--make-sse-buff (url callback &optional last-id)
-  "Return a new buffer for parsing SSE's, calling CALLBACK for each one."
+(defun sse--make-sse-buff (url callback)
+  "Return a new buffer for parsing SSEs from URL, calling CALLBACK for each one."
   (let ((sse-buff (generate-new-buffer "*sse*")))
     (with-current-buffer sse-buff
       (setq-local after-change-functions nil)
@@ -87,7 +87,7 @@ Return nil if it can't be parsed."
       (setq-local sse--callback callback)
       (setq-local sse--retry 3000)
       (setq-local sse--url url)
-      (setq-local sse--last-id last-id)
+      (setq-local sse--last-id nil)
       (setq-local sse--retrieval-buff nil)
       (make-local-variable 'kill-buffer-hook)
       ;; Kill the `url-retrive' buffer when this sse-buffer is kill.
@@ -101,14 +101,13 @@ Return nil if it can't be parsed."
     sse-buff))
 
 (defun sse--make-closed-callback (sse-buff)
-  "Return a callback for `url-retrive' that attempts to reconnect to SSE stream"
+  "Return a callback for SSE-BUFF's `url-retrieve' that will attempt to reconnect."
   (lambda (&rest _)
     (when (buffer-live-p sse-buff)
       (message "SSE stream: %s closed, atempting reconnect." sse-buff)
       (with-current-buffer sse-buff
         (erase-buffer)
         (setq sse--passed-header nil)
-        ;; TODO: modify header with last-id
         (run-at-time (/ sse--retry 1000.0) nil
                      (lambda ()
                        (when (buffer-live-p sse-buff)
@@ -116,6 +115,7 @@ Return nil if it can't be parsed."
 
 ;; TODO: Handle cookies
 (defun sse--start-retrieve (sse-buff)
+  "Start a `url-retrieve' to get events for SSE-BUFF."
   (with-current-buffer sse-buff
     (let* ((url-request-method "GET")
            (url-request-extra-headers
@@ -135,9 +135,8 @@ Return nil if it can't be parsed."
     (sse--start-retrieve sse-buff)
     sse-buff))
 
-
 (defun sse--url-filter-advice (proc _)
-  "Run buffer local variable `sse-handler-function' if it is bound."
+  "Copy new data from PROC's buff to `sse--buff', if it exists."
   (when (process-buffer proc)
     (with-current-buffer (process-buffer proc)
       (when (boundp 'sse--buff)
@@ -150,12 +149,6 @@ Return nil if it can't be parsed."
 
 (advice-add #'url-http-generic-filter :after #'sse--url-filter-advice)
 
-;; TODO: Ability to close connection
-;; TODO: Pass in cookies, headers, etc
-;; TODO: Look at curl backend
-
-;; TODO: Last-Event-ID header for reconnects
-;; (advice-remove #'url-http-generic-filter #'sse--url-filter-advice)
 
 (provide 'sse)
 
