@@ -88,29 +88,44 @@ Return nil if it can't be parsed."
       (setq-local sse--retry 3000)
       (setq-local sse--url url)
       (setq-local sse--last-id last-id)
+      (setq-local sse--retrieval-buff nil)
+      (make-local-variable 'kill-buffer-hook)
+      ;; Kill the `url-retrive' buffer when this sse-buffer is kill.
+      (add-hook 'kill-buffer-hook
+                (lambda ()
+                  (when (buffer-live-p sse--retrieval-buff)
+                    (when (get-buffer-process sse--retrieval-buff)
+                      (delete-process sse--retrieval-buff)
+                      (kill-buffer sse--retrieval-buff)))))
       (add-to-list 'after-change-functions #'sse--on-change))
     sse-buff))
 
 (defun sse--make-closed-callback (sse-buff)
-  "Return a function to attempt to recconect to sse when url-retrive closes."
+  "Return a callback for `url-retrive' that attempts to reconnect to SSE stream"
   (lambda (&rest _)
-    (urbit--log "SSE stream closed, atempting recconect.")
-    (with-current-buffer sse-buff
-      (erase-buffer)
-      ;; TODO: modify header with last-id
-      (run-at-time (/ sse-retry 1000.0) nil #'sse--start-retrieve sse-buff))))
+    (when (buffer-live-p sse-buff)
+      (message "SSE stream: %s closed, atempting reconnect." sse-buff)
+      (with-current-buffer sse-buff
+        (erase-buffer)
+        (setq sse--passed-header nil)
+        ;; TODO: modify header with last-id
+        (run-at-time (/ sse--retry 1000.0) nil
+                     (lambda ()
+                       (when (buffer-live-p sse-buff)
+                         (sse--start-retrieve sse-buff))))))))
 
 ;; TODO: Handle cookies
 (defun sse--start-retrieve (sse-buff)
   (with-current-buffer sse-buff
     (let* ((url-request-method "GET")
-           (url-request-extra-headers (append
-                                       `("Cache-Control" . "no-cache") 
-                                       (when sse--last-event-id
-                                         `("Last-Event-ID" . sse--last-event-id))))
+           (url-request-extra-headers
+            `(("Cache-Control" . "no-cache") 
+              ,@(when sse--last-id
+                  `(("Last-Event-ID" . ,sse--last-id)))))
            (callback (sse--make-closed-callback sse-buff))
-           (retrieve-buff (url-retrieve sse--url callback)))
-      (with-current-buffer retrieve-buff
+           (retrieval-buff (url-retrieve sse--url callback)))
+      (setq sse--retrieval-buff retrieval-buff)
+      (with-current-buffer retrieval-buff
         (setq-local sse--buff sse-buff)
         (setq-local sse--start (point-min))))))
 
