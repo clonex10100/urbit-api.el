@@ -118,17 +118,23 @@ Useful for assigning defaults to optional args."
   (setq urbit--subscription-handlers nil)
   (setq urbit--channel-url (concat urbit-url "/~/channel/" urbit--uid)))
 
-(defun urbit-connect ()
-  "Connect to ship described by `urbit-url' and `urbit-code'."
+(aio-defun urbit-connect ()
+  "Connect to ship described by `urbit-url' and `urbit-code'.
+Return a promise resolving to ship name."
   (let ((url-request-method "POST")
         (url-request-data (concat "password=" urbit-code))
         (login-url (concat urbit-url "/~/login")))
-    (with-current-buffer (url-retrieve-synchronously login-url)
-      (goto-char (point-min))
-      (search-forward "set-cookie: ")
-      (setq urbit--cookie (buffer-substring (point) (line-end-position)))
-      (string-match "-~\\([[:alpha:]-]*\\)=" urbit--cookie)
-      (setq urbit-ship (match-string 1 urbit--cookie)))))
+    (let* ((p (aio-await (aio-url-retrieve login-url)))
+           (status (car p))
+           (buff (cdr p)))
+      (with-current-buffer buff
+        ;; TODO: check for error
+        (goto-char (point-min))
+        (search-forward "set-cookie: ")
+        (setq urbit--cookie (buffer-substring (point) (line-end-position)))
+        (string-match "-~\\([[:alpha:]-]*\\)=" urbit--cookie)
+        (setq urbit-ship (match-string 1 urbit--cookie))
+        urbit-ship))))
 
 (defun urbit-start-sse ()
   "Start recieving SSEs for current urbit connection."
