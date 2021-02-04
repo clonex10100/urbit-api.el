@@ -47,7 +47,7 @@
   "Name of connected urbit ship.")
 
 (defvar urbit-log t
-  "Logging toggle")
+  "Logging toggle.")
 
 (defvar urbit--uid
   "UID for this urbit connection.
@@ -62,18 +62,23 @@ Should be set to the current unix time plus a 6 digit random hex string.")
 (defvar urbit--cookie
   "Auth cookie for current connection.")
 
+(defvar urbit--request-cookie-jar nil
+  "Cookie jar for request.el.")
+
 (defvar urbit--sse-buff nil
-  "Buffer that urbit is listening to SSE events on.")
+  "Buffer that urbit is listening to SSEs on.")
 
 (defvar urbit--poke-handlers '()
-  "Alist of poke id's to handler functions")
+  "Alist of poke ids to handler functions.")
 
 (defvar urbit--subscription-handlers '()
-  "Alist of subscription id's to handler functions")
+  "Alist of subscription ids to handler functions.")
+
+
 
 (defmacro urbit--let-if-nil (spec &rest body)
   "Bind variables according to SPEC only if they are nil, then evaluate BODY.
- Useful for assigning defaults to optional args."
+Useful for assigning defaults to optional args."
   (declare (indent 1))
   `(let ,(seq-map (lambda (s)
                     (let ((sym (car s))
@@ -82,8 +87,10 @@ Should be set to the current unix time plus a 6 digit random hex string.")
                   spec)
      ,@body))
 
+
+
 (defun urbit--log (&rest msg-args)
-  "If urbit-verbose is t, log to *urbit-log*"
+  "If urbit-verbose is t, log to *urbit-log*."
   (when urbit-log
     (with-current-buffer "*urbit-log*"
       (goto-char (point-max))
@@ -117,8 +124,6 @@ Should be set to the current unix time plus a 6 digit random hex string.")
         (url-request-data (concat "password=" urbit-code))
         (login-url (concat urbit-url "/~/login")))
     (with-current-buffer (url-retrieve-synchronously login-url)
-      (urbit--temp-request-login login-url urbit-code)
-      (urbit--log "Login buff:\n%s" (buffer-string))
       (goto-char (point-min))
       (search-forward "set-cookie: ")
       (setq urbit--cookie (buffer-substring (point) (line-end-position)))
@@ -207,8 +212,8 @@ be called when a poke response is recieved."
                             event-callback
                             err-callback
                             quit-callback)
-  "Subscribe to an APP on PATH.
-EVENT-CALLBACK for each event recieved with the event as argument.
+  "Subscribe to an APP on PATH. Return subscription id.
+EVENT-CALLBACK is called for each event recieved with the event as argument.
 ERR-CALLBACK is called on errors with the error as argument.
 QUIT-CALLBACK is called on quit."
   (let ((id (aio-await
@@ -235,28 +240,32 @@ QUIT-CALLBACK is called on quit."
   "Unsubscribe from SUBSCRIPTION."
   (aio-await
    (urbit--send-message "unsubscribe"
-                        `((subscription . ,subscription)))))
+                        `((subscription . ,subscription))))
+  subscription)
 
+;; TODO: cleanup on elisp side.
 (aio-defun urbit-delete ()
   "Delete current channel connection."
   (aio-await
    (urbit--send-message "delete")))
 
 (aio-defun urbit-scry (app path)
+  "Scry APP at PATH."
   (aio-await
-   (urbit--request-wrapper "GET"
-                           (concat urbit-url "/~/scry/" app path ".json"))))
+   (urbit--json-request-wrapper "GET"
+                                (concat urbit-url "/~/scry/" app path ".json"))))
 
 (aio-defun urbit-spider (input-mark output-mark thread-name data)
   (aio-await
-   (urbit--request-wrapper "POST"
-                           (format "%s/spider/%s/%s/%s.json"
-                                   urbit-url
-                                   input-mark
-                                   thread-name
-                                   output-mark))))
+   (urbit--json-request-wrapper "POST"
+                                (format "%s/spider/%s/%s/%s.json"
+                                        urbit-url
+                                        input-mark
+                                        thread-name
+                                        output-mark))))
 
 (defun urbit--handle-poke-response (data)
+  "Handle poke response DATA."
   (let-alist data
     (let ((handlers (alist-get .id urbit--poke-handlers)))
       (cond
@@ -267,6 +276,7 @@ QUIT-CALLBACK is called on quit."
             (assq-delete-all .id urbit--poke-handlers)))))
 
 (defun urbit--handle-subscription-response (data)
+  "Handle subscription response DATA."
   (let-alist data
     (let ((handlers (alist-get .id urbit--subscription-handlers)))
       (pcase .response
@@ -283,11 +293,11 @@ QUIT-CALLBACK is called on quit."
                (assq-delete-all .id urbit--subscription-handlers)))
         (--- (urbit--log "Invalid subscription response."))))))
 
-(defun urbit--sse-callback (event)
-  "Handle server sent EVENTs."
-  (urbit--log "SSE recieved: %S" event)
-  (aio-wait-for (urbit-ack (string-to-number (alist-get 'id event))))
-  (let* ((data (json-parse-string (alist-get 'data event)
+(defun urbit--sse-callback (sse)
+  "Handle server sent SSEs."
+  (urbit--log "SSE recieved: %S" sse)
+  (aio-wait-for (urbit-ack (string-to-number (alist-get 'id sse))))
+  (let* ((data (json-parse-string (alist-get 'data sse)
                                   :object-type 'alist)))
     (let-alist data
       (cond ((and (string= .response "poke")
