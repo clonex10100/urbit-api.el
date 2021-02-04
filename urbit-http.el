@@ -105,6 +105,7 @@ Should be set to the current unix time plus a 6 digit random hex string.")
   (setq urbit--uid (concat (format-time-string "%s")
                            "-"
                            (urbit--random-hex-string 6)))
+  (setq urbit--request-cookie-jar nil)
   (setq urbit--last-event-id 0)
   (setq urbit--poke-handlers nil)
   (setq urbit--subscription-handlers nil)
@@ -125,30 +126,33 @@ Should be set to the current unix time plus a 6 digit random hex string.")
       (setq urbit-ship (match-string 1 urbit--cookie)))))
 
 (defun urbit-start-sse ()
+  "Start recieving SSEs for current urbit connection."
   ;; Make sure we don't have more than one sse buff
-  (setq urbit--sse-buff (sse-listener urbit--channel-url #'urbit--sse-callback)))
+  (when (buffer-live-p urbit--sse-buff) (kill-buffer urbit--sse-buff))
+  (setq urbit--sse-buff
+        (sse-listener urbit--channel-url #'urbit--sse-callback)))
 
-(defun urbit--temp-request-login (url password)
-  "Login with `request' so it has cookies. fix and use urbit--cookie instead"
-  (request url
-    :type "POST"
-    :sync t
-    :data `(("password" . ,password))
-    :parser 'json-read
-    :encoding 'utf-8
-    :success (cl-function
-              (lambda (&key data &allow-other-keys)
-                (urbit--log "Request: %s" data)))))
-
-(defun urbit--request-wrapper (method url &optional data)
+(defun urbit--json-request-wrapper (method url &optional object)
+  "Make a json request with METHOD to URL with json encodable OBJECT as data.
+Return a promise that resolves to response object.
+Uses `urbit--cookie' for authentication."
+  ;; The only working way I've found to pass a cookie to `request' is
+  ;; to set a cookie header on the first request, let request put it
+  ;; in it's cookie jar, then stop passing the cookie header.
   (let* ((p (aio-make-callback :once t))
-         (resolved nil)
          (callback (car p))
-         (promise (cdr p)))
+         (promise (cdr p))
+         (first-run (not urbit--request-cookie-jar))
+         (request--curl-cookie-jar
+          (progn
+            (when first-run
+              (setq urbit--request-cookie-jar (make-temp-file "urbit-request-cookie-jar-")))
+            urbit--request-cookie-jar)))
     (request url
       :type method
-      :headers `(("Content-Type" . "application/json"))
-      :data (when data (json-encode data))
+      :headers `(("Content-Type" . "application/json")
+                 ,@(when first-run `(("Cookie" . ,urbit--cookie))))
+      :data (when object (json-encode object))
       :parser 'json-read
       :encoding 'utf-8
       :success (cl-function
@@ -161,26 +165,23 @@ Should be set to the current unix time plus a 6 digit random hex string.")
                   (funcall callback nil)))
     promise))
 
-(aio-defun urbit--put-object (url object)
-  "Asynchronously send a put request to URL with OBJECT as the request data.
-Optionally calls CALLBACK on completion."
-  (aio-await (urbit--request-wrapper "PUT" url object)))
-
 (aio-defun urbit--send-message (action &optional data)
   "Send a message to urbit with ACTION and DATA. Return id of sent message."
   (let ((id (urbit--event-id)))
-    (aio-await (urbit--put-object urbit--channel-url
-                                  `[((id . ,id)
-                                     (action . ,action)
-                                     ,@data)]))
+    (aio-await (urbit--json-request-wrapper "PUT"
+                                            urbit--channel-url
+                                            `[((id . ,id)
+                                               (action . ,action)
+                                               ,@data)]))
     id))
 
 (aio-defun urbit-ack (event-id)
   "Acknowledge EVENT-ID."
-  (aio-await (urbit--send-message "ack" `((event-id . ,event-id)))))
+  (aio-await (urbit--send-message "ack" `((event-id . ,event-id))))
+  event-id)
 
 (aio-defun urbit-poke (app mark data &optional ok-callback err-callback)
-  "Pokes APP with MARK DATA.
+  "Pokes APP with MARK DATA. Return id of poke.
 If OK-CALLBACK and ERR-CALLBACK are passed, the correct one will
 be called when a poke response is recieved."
   (let ((id (aio-await
