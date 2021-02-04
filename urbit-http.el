@@ -46,9 +46,6 @@
 (defvar urbit-ship
   "Name of connected urbit ship.")
 
-(defvar urbit-log t
-  "Logging toggle.")
-
 (defvar urbit--uid
   "UID for this urbit connection.
 Should be set to the current unix time plus a 6 digit random hex string.")
@@ -74,6 +71,9 @@ Should be set to the current unix time plus a 6 digit random hex string.")
 (defvar urbit--subscription-handlers '()
   "Alist of subscription ids to handler functions.")
 
+(defconst urbit-log-buffer "*urbit-log*"
+  "Buffer for urbit log messages.")
+
 
 
 (defmacro urbit--let-if-nil (spec &rest body)
@@ -87,15 +87,12 @@ Useful for assigning defaults to optional args."
                   spec)
      ,@body))
 
-
-
 (defun urbit--log (&rest msg-args)
-  "If urbit-verbose is t, log to *urbit-log*."
-  (when urbit-log
-    (with-current-buffer "*urbit-log*"
-      (goto-char (point-max))
-      (insert (apply #'format msg-args))
-      (insert "\n\n"))))
+  "Log to `urbit-log-buffer'.  MSG-ARGS are passed to `format'."
+  (with-current-buffer (get-buffer-create urbit-log-buffer)
+    (goto-char (point-max))
+    (insert (apply #'format msg-args))
+    (insert "\n\n")))
 
 (defun urbit--random-hex-string (n)
   "Generate a random N digit hexadecimal string."
