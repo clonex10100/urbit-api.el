@@ -140,6 +140,13 @@ Return a promise resolving to ship name."
   (setq urbit--sse-buff
         (sse-listener urbit--channel-url #'urbit--sse-callback)))
 
+(aio-defun urbit-launch (url code)
+    "All in one intialization function to connect to ship at URL with CODE."
+    (urbit-init url code)
+    (aio-await (urbit-connect))
+    (aio-await (urbit-poke "hood" "helm-hi" "Opening elisp airlock."))
+    (urbit-start-sse))
+
 (defun urbit--json-request-wrapper (method url &optional object)
   "Make a json request with METHOD to URL with json encodable OBJECT as data.
 Return a promise that resolves to response object.
