@@ -2,7 +2,7 @@
 Connect your operating system with your personal server.
 ** Install
 Get [[https://github.com/skeeto/emacs-aio][aio]] and [[https://github.com/tkf/emacs-request][request]] then use =M-x package-install-file= to install a
-[[https://github.com/clonex10100/urbit-api.el/releases][tarball]].
+[[https://github.com/clonex10100/urbit-api.el/releases][tarball]], or just clone the repo into your load path.
 ** Example
 *** Urbit-http 
 All of the user facing functions use [[https://github.com/skeeto/emacs-aio][aio]] and return promises.

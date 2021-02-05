@@ -99,7 +99,7 @@ Useful for assigning defaults to optional args."
   (setq urbit-http--last-event-id (+ urbit-http--last-event-id 1)))
 
 (defun urbit-http-init (url code)
-  "Initialize urbit-http-http with URL and CODE."
+  "Initialize urbit-http with URL and CODE."
   (setq urbit-http--url url)
   (setq urbit-http--code code)
   (setq urbit-http--uid (concat (format-time-string "%s")
