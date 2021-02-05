@@ -1,0 +1,25 @@
+* Urbit HTTP elisp API
+Connect your operating system with your personal server.
+** Install
+Use =M-x package-install-file= to install a [[https://github.com/clonex10100/urbit-api.el/releases][tarball]].
+** Example
+*** Urbit-http 
+All of the user facing functions use [[https://github.com/skeeto/emacs-aio][aio]] and return promises.
+
+#+BEGIN_SRC emacs-lisp
+  (require 'urbit-http)
+  (require 'aio)
+
+  ;; Connect to a ~zod running locally
+  (aio-wait-for
+   (urbit-http-launch "http://localhost:8080" "lidlut-tabwed-pillex-ridrup"))
+
+  ;; Send a poke
+  (urbit-http-poke "hood" "helm-hi" "Hello, world!"
+              (lambda () (message "Poke succeeded."))
+              (lambda () (message "Poke failed.")))
+
+  ;; Subscribe to an app
+  (urbit-http-subscribe "graph-store" "/updates"
+                   (lambda (event) (message "Graph update recieved %s" event)))
+#+END_SRC
