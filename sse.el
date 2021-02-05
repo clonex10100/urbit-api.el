@@ -1,10 +1,6 @@
-;;; sse.el --- SSE client library -*- lexical-binding: t -*-
+;;; sse.el --- SSE client library -*- lexical-binding: t; -*-
 
 ;; Author: Noah Evans <noah@nevans.me>
-;; Maintainer: Noah Evans <noah@nevans.me>
-;; Version: 1.0
-;; Package-Requires: (sse, url)
-;; Keywords: SSE
 
 ;; This file is not part of GNU Emacs
 
@@ -21,13 +17,42 @@
 ;; For a full copy of the GNU General Public License
 ;; see <http://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
+;; Library to listen for SSEs.  Uses `url-retrieve', so if your stream
+;; needs cookies they must be in its list.
+
+;; Example usage:
+;; (setq sse-buff
+;;       (sse-listener "https://example.com/stream"
+;;                     (lambda (sse)
+;;                       (message "SSE recieved: %s" sse))))
+;; When finished
+;; (kill-buffer sse-buff)
+
 ;;; Code:
 
 (require 'url)
 (require 'url-http)
-(require 'aio)
-(require 'seq)
 (provide 'subr-x)
+
+(defvar-local sse--passed-header nil
+  "Flag to keep track of if the http header has been passed.")
+(defvar-local sse--callback nil
+  "Callback for sse buffer")
+(defvar-local sse--retry 3000
+  "Time in milliseconds to wait before trying to reopen closed SSE connection.")
+(defvar-local sse--url nil
+  "Url for SSE buffer's stream.")
+(defvar-local sse--last-id nil
+  "Id of last SSE recieved.")
+(defvar-local sse--retrieval-buff nil
+  "`url-retrieve' buffer for this SSE buffer.")
+
+(defvar-local sse--buff nil
+  "SSE buffer for associated with current `url-retrieve' buffer.")
+(defvar-local sse--read-point nil
+  "Point marking the end of copied region in `url-retrieve' buffer.")
 
 (defconst sse-delim-regex ".\\(\\(\r\r\\)\\|\\(\n\n\\)\\|\\(\r\n\r\n\\)\\)"
   "Regex to delimit SSEs.")
@@ -53,12 +78,11 @@ Return nil if it's a comment or can't be parsed."
 (defun sse--parse (sse-string)
   "Parse SSE-STRING into an alist.
 Return nil if it can't be parsed."
-  ;; Strip leading and trailing newlines
   (let ((sse-string (sse--strip-outer-newlines sse-string)))
     (if (= (length sse-string) 0) nil
       (delq nil
-            (seq-map #'sse--parse-line
-                     (split-string sse-string "\n\\|\r\\'"))))))
+            (mapcar #'sse--parse-line
+                    (split-string sse-string "\n\\|\r\\'"))))))
 
 (defun sse--on-change (&rest _)
   "Try to parse new SSEs in buffer."
@@ -83,12 +107,12 @@ Return nil if it can't be parsed."
     (with-current-buffer sse-buff
       (setq-local after-change-functions nil)
       (setq-local inhibit-modification-hooks nil)
-      (setq-local sse--passed-header nil)
-      (setq-local sse--callback callback)
-      (setq-local sse--retry 3000)
-      (setq-local sse--url url)
-      (setq-local sse--last-id nil)
-      (setq-local sse--retrieval-buff nil)
+      (setq sse--passed-header nil)
+      (setq sse--callback callback)
+      (setq sse--retry 3000)
+      (setq sse--url url)
+      (setq sse--last-id nil)
+      (setq sse--retrieval-buff nil)
       (make-local-variable 'kill-buffer-hook)
       ;; Kill the `url-retrive' buffer when this sse-buffer is kill.
       (add-hook 'kill-buffer-hook
@@ -113,43 +137,36 @@ Return nil if it can't be parsed."
                        (when (buffer-live-p sse-buff)
                          (sse--start-retrieve sse-buff))))))))
 
-;; TODO: Handle cookies
 (defun sse--start-retrieve (sse-buff)
   "Start a `url-retrieve' to get events for SSE-BUFF."
   (with-current-buffer sse-buff
     (let* ((url-request-method "GET")
            (url-request-extra-headers
-            `(("Cache-Control" . "no-cache") 
+            `(("Cache-Control" . "no-cache")
               ,@(when sse--last-id
                   `(("Last-Event-ID" . ,sse--last-id)))))
            (callback (sse--make-closed-callback sse-buff))
            (retrieval-buff (url-retrieve sse--url callback)))
       (setq sse--retrieval-buff retrieval-buff)
       (with-current-buffer retrieval-buff
-        (setq-local sse--buff sse-buff)
-        (setq-local sse--start (point-min))))))
+        (setq sse--buff sse-buff)
+        (setq sse--read-point (point-min))))))
 
 (defun sse-listener (url callback)
-  "Listen to URL for SSEs, calling CALLBACK on each one."
+  "Listen to URL for SSEs, calling CALLBACK on each one.
+Returns a buffer that you should kill when you are done with the stream.
+Uses `url-retrive' internally."
   (let ((sse-buff (sse--make-sse-buff url callback)))
     (sse--start-retrieve sse-buff)
     sse-buff))
-
-(aio-defun sse-aio-listener (url)
-  "Listen to URL for SSEs, returning a chain of promises."
-  (let* ((p (aio-make-callback))
-        (callback (car p))
-        (promise (cdr p)))
-    (sse-listener url callback)
-    promise))
 
 (defun sse--url-filter-advice (proc _)
   "Copy new data from PROC's buff to `sse--buff', if it exists."
   (when (process-buffer proc)
     (with-current-buffer (process-buffer proc)
-      (when (boundp 'sse--buff)
-        (let ((data (prog1 (buffer-substring sse--start (point-max))
-                      (setq sse--start (point-max-marker)))))
+      (when sse--buff
+        (let ((data (prog1 (buffer-substring sse--read-point (point-max))
+                      (setq sse--read-point (point-max-marker)))))
           (with-current-buffer sse--buff
             (save-excursion
               (goto-char (point-max))
