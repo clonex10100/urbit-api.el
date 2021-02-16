@@ -39,9 +39,6 @@
 (defvar urbit-http--code
   "Urbit ship code.")
 
-(defvar urbit-http-ship
-  "Urbit ship name.")
-
 (defvar urbit-http--uid
   "UID for this urbit connection.
 Should be set to the current unix time plus a 6 digit random hex string.")
@@ -67,9 +64,6 @@ Should be set to the current unix time plus a 6 digit random hex string.")
 (defvar urbit-http--subscription-handlers '()
   "Alist of subscription ids to handler functions.")
 
-(defconst urbit-http-log-buffer "*urbit-log*"
-  "Buffer for urbit log messages.")
-
 
 
 (defmacro urbit-http--let-if-nil (spec &rest body)
@@ -82,13 +76,6 @@ Useful for assigning defaults to optional args."
                      `(,sym (or ,sym ,else))))
                  spec)
      ,@body))
-
-(defun urbit-http--log (&rest msg-args)
-  "Log to `urbit-http-log-buffer'.  MSG-ARGS are passed to `format'."
-  (with-current-buffer (get-buffer-create urbit-http-log-buffer)
-    (goto-char (point-max))
-    (insert (apply #'format msg-args))
-    (insert "\n\n")))
 
 (defun urbit-http--random-hex-string (n)
   "Generate a random N digit hexadecimal string."
@@ -126,8 +113,8 @@ Return a promise resolving to ship name."
         (search-forward "set-cookie: ")
         (setq urbit-http--cookie (buffer-substring (point) (line-end-position)))
         (string-match "-~\\([[:alpha:]-]*\\)=" urbit-http--cookie)
-        (setq urbit-http-ship (match-string 1 urbit-http--cookie))
-        urbit-http-ship))))
+        (setq urbit-ship (match-string 1 urbit-http--cookie))
+        urbit-ship))))
 
 (defun urbit-http-start-sse ()
   "Start recieving SSEs for current urbit connection."
@@ -135,13 +122,6 @@ Return a promise resolving to ship name."
   (when (buffer-live-p urbit-http--sse-buff) (kill-buffer urbit-http--sse-buff))
   (setq urbit-http--sse-buff
         (sse-listener urbit-http--channel-url #'urbit-http--sse-callback)))
-
-(aio-defun urbit-http-launch (url code)
-  "All in one intialization function to connect to ship at URL with CODE."
-  (urbit-http-init url code)
-  (aio-await (urbit-http-connect))
-  (aio-await (urbit-http-poke "hood" "helm-hi" "Opening elisp airlock."))
-  (urbit-http-start-sse))
 
 (defun urbit-http--json-request-wrapper (method url &optional object)
   "Make a json request with METHOD to URL with json encodable OBJECT as data.
@@ -165,7 +145,7 @@ Uses `urbit-http--cookie' for authentication."
       :headers `(("Content-Type" . "application/json")
                  ,@(when first-run `(("Cookie" . ,urbit-http--cookie))))
       :data (when object (json-encode object))
-      :parser 'json-read
+      :parser #'json-read
       :encoding 'utf-8
       :success (cl-function
                 (lambda (&key data &allow-other-keys)
@@ -198,20 +178,20 @@ If OK-CALLBACK and ERR-CALLBACK are passed, the correct one will
 be called when a poke response is recieved."
   (let ((id (aio-await
              (urbit-http--send-message "poke"
-                                       `((ship . ,urbit-http-ship)
+                                       `((ship . ,urbit-ship)
                                          (app . ,app)
                                          (mark . , mark)
                                          (json . ,data))))))
     (urbit-http--let-if-nil ((ok-callback
                               (lambda ()
-                                (urbit-http--log "Poke %s is ok" id)))
+                                (urbit-log "Poke %s is ok" id)))
                              (err-callback
                               (lambda (err)
-                                (urbit-http--log "Poke %s error: %s" id err))))
-                            (add-to-list 'urbit-http--poke-handlers
-                                         `(,id (ok . ,ok-callback)
-                                               (err . ,err-callback)))
-                            id)))
+                                (urbit-log "Poke %s error: %s" id err))))
+      (add-to-list 'urbit-http--poke-handlers
+                   `(,id (ok . ,ok-callback)
+                         (err . ,err-callback)))
+      id)))
 
 (aio-defun urbit-http-subscribe (app
                                  path
@@ -225,26 +205,26 @@ ERR-CALLBACK is called on errors with the error as argument.
 QUIT-CALLBACK is called on quit."
   (let ((id (aio-await
              (urbit-http--send-message "subscribe"
-                                       `((ship . ,urbit-http-ship)
+                                       `((ship . ,urbit-ship)
                                          (app . ,app)
                                          (path . ,path))))))
     (urbit-http--let-if-nil ((event-callback
                               (lambda (data)
-                                (urbit-http--log "Subscription %s event: %s"
-                                                 id data)))
+                                (urbit-log "Subscription %s event: %s"
+                                           id data)))
                              (err-callback
                               (lambda (err)
-                                (urbit-http--log "Subscription %s error: %s"
-                                                 id err)))
+                                (urbit-log "Subscription %s error: %s"
+                                           id err)))
                              (quit-callback
                               (lambda (data)
-                                (urbit-http--log "Subscription %s quit: %s"
-                                                 id data))))
-                            (add-to-list 'urbit-http--subscription-handlers
-                                         `(,id (event . ,event-callback)
-                                               (err . ,err-callback)
-                                               (quit . ,quit-callback)))
-                            id)))
+                                (urbit-log "Subscription %s quit: %s"
+                                           id data))))
+      (add-to-list 'urbit-http--subscription-handlers
+                   `(,id (event . ,event-callback)
+                         (err . ,err-callback)
+                         (quit . ,quit-callback)))
+      id)))
 
 (aio-defun urbit-http-unsubscribe (subscription)
   "Unsubscribe from SUBSCRIPTION."
@@ -254,6 +234,7 @@ QUIT-CALLBACK is called on quit."
 
 (aio-defun urbit-http-delete ()
   "Delete current channel connection."
+  (kill-buffer urbit-http--sse-buff)
   (aio-await (urbit-http--send-message "delete")))
 
 (aio-defun urbit-http-scry (app path)
@@ -281,7 +262,7 @@ QUIT-CALLBACK is called on quit."
       (cond
        (.ok (funcall (alist-get 'ok handlers)))
        (.err (funcall (alist-get 'err handlers) .err))
-       (t (urbit-http--log "Invalid poke response.")))
+       (t (urbit-log "Invalid poke response.")))
       (setq urbit-http--poke-handlers
             (assq-delete-all .id urbit-http--poke-handlers)))))
 
@@ -301,11 +282,11 @@ QUIT-CALLBACK is called on quit."
          (funcall (alist-get 'quit handlers) .json)
          (setq urbit-http--subscription-handlers
                (assq-delete-all .id urbit-http--subscription-handlers)))
-        (--- (urbit-http--log "Invalid subscription response."))))))
+        (--- (urbit-log "Invalid subscription response."))))))
 
 (defun urbit-http--sse-callback (sse)
   "Handle server sent SSEs."
-  (urbit-http--log "SSE recieved: %S" sse)
+  (urbit-log "SSE recieved: %S" sse)
   (aio-wait-for (urbit-http-ack (string-to-number (alist-get 'id sse))))
   (let* ((data (json-parse-string (alist-get 'data sse)
                                   :object-type 'alist)))
@@ -315,7 +296,7 @@ QUIT-CALLBACK is called on quit."
              (urbit-http--handle-poke-response data))
             ((assq .id urbit-http--subscription-handlers)
              (urbit-http--handle-subscription-response data))
-            (t (urbit-http--log "Got response for untracked id: %s" .id))))))
+            (t (urbit-log "Got response for untracked id: %s" .id))))))
 
 
 
