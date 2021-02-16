@@ -1,8 +1,6 @@
 ;;; urbit.el --- An api for interacting with an urbit ship -*- lexical-binding: t -*-
 
-
 ;; Author: Noah Evans <noah@nevans.me>
-
 
 ;; This file is not part of GNU Emacs
 
@@ -26,11 +24,36 @@
 
 ;;; Code:
 (require 'urbit-http)
+(require 'urbit-graph)
 
-(defvar urbit-ship
+(defvar urbit-ship nil
   "Urbit ship name.")
 (defconst urbit-log-buffer "*urbit-log*"
   "Buffer for urbit log messages.")
+
+(defconst urbit-da-unix-epoch
+  170141184475152167957503069145530368000)
+(defconst urbit-da-second
+  18446744073709551616)
+
+(defun urbit-milli-time ()
+  "Time since the unix epoch in millseconds."
+  (string-to-number (format-time-string "%s%3N")))
+
+(defun urbit-da-time ()
+  "Gets the current time as a string in urbit's @da encoding."
+  (number-to-string
+   (+ (/ (* (urbit-milli-time) urbit-da-second)
+         1000)
+      urbit-da-unix-epoch)))
+
+(defun urbit-desig (ship)
+  "Remove the sig from a SHIP string."
+  (if (and (> (length ship) 0)
+           (eq (elt ship 0)
+               ?~))
+      (substring ship 1)
+    ship))
 
 (defun urbit-log (&rest msg-args)
   "Log to `urbit-log-buffer'.  MSG-ARGS are passed to `format'."
@@ -44,7 +67,8 @@
   (urbit-http-init url code)
   (aio-await (urbit-http-connect))
   (aio-await (urbit-http-poke "hood" "helm-hi" "Opening elisp airlock."))
-  (urbit-http-start-sse))
+  (urbit-http-start-sse)
+  (aio-await (urbit-graph-init)))
 
 (provide 'urbit)
 
