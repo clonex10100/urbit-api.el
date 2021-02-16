@@ -33,23 +33,23 @@
 ;;
 ;; Variables
 ;;
-(defvar urbit-http--url
+(defvar urbit-http--url nil
   "Urbit ship url.")
 
-(defvar urbit-http--code
+(defvar urbit-http--code nil
   "Urbit ship code.")
 
-(defvar urbit-http--uid
+(defvar urbit-http--uid nil
   "UID for this urbit connection.
 Should be set to the current unix time plus a 6 digit random hex string.")
 
-(defvar urbit-http--last-event-id
+(defvar urbit-http--last-event-id nil
   "Id of last sent event.")
 
-(defvar urbit-http--channel-url
+(defvar urbit-http--channel-url nil
   "The channel url for connected ship.")
 
-(defvar urbit-http--cookie
+(defvar urbit-http--cookie nil
   "Auth cookie for current connection.")
 
 (defvar urbit-http--request-cookie-jar nil
