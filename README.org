@@ -8,12 +8,13 @@ Get [[https://github.com/skeeto/emacs-aio][aio]] and [[https://github.com/tkf/em
 All of the user facing functions use [[https://github.com/skeeto/emacs-aio][aio]] and return promises.
 
 #+BEGIN_SRC emacs-lisp
+  (require 'urbit)
   (require 'urbit-http)
   (require 'aio)
 
   ;; Connect to a ~zod running locally
   (aio-wait-for
-   (urbit-http-launch "http://localhost:8080" "lidlut-tabwed-pillex-ridrup"))
+   (urbit-launch "http://localhost:8080" "lidlut-tabwed-pillex-ridrup"))
 
   ;; Send a poke
   (urbit-http-poke "hood" "helm-hi" "Hello, world!"
