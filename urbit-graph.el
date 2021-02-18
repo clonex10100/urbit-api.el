@@ -71,8 +71,6 @@
                                "/updates"
                                #'urbit-graph-update-handler))))
 
-
-
 (defun urbit-graph-index-symbol-to-list (symbol)
   (mapcar #'string-to-number
           (split-string (symbol-name symbol) "/" t)))
@@ -86,7 +84,6 @@
 ;;
 ;; Event handling
 ;;
-
 ;; TODO: should probably create the graph if it doesn't exist
 (defun urbit-graph-add-nodes-handler (data)
   "Handle add-nodes graph-update action."
@@ -133,11 +130,6 @@
         ((urbit-graph-match-key 'remove-graph) (urbit-log "Remove graph not implemented"))
         (- (urbit-log "Unkown graph-update: %s" graph-update))))))
 
-
-;;
-;; Helpers
-;; 
-
 ;; TODO: bad function figure out actual subscription
 (aio-defun urbit-graph-subscribe (ship name callback)
   "Subscribe to a graph at SHIP and NAME, calling CALLBACK with a list of new nodes on each update."
@@ -146,8 +138,6 @@
                 (urbit-graph-resource-to-symbol `((ship . ,ship)
                                                   (name . ,name)))
                 callback)))
-
-
 
 ;;
 ;; Constructors
@@ -174,6 +164,7 @@ CONTENTS is a vector or list of content objects."
 (defun urbit-graph-make-resource (ship name)
   `(resource (ship . ,ship)
              (name . ,name)))
+
 ;;
 ;; Actions
 ;;
@@ -200,7 +191,6 @@ CONTENTS is a vector or list of content objects."
 ;;
 ;; View Actions
 ;;
-
 (defun urbit-graph-join (ship name)
   (urbit-graph-let-resource
    (urbit-graph-view-action "graph-join"
@@ -232,7 +222,6 @@ CONTENTS is a vector or list of content objects."
   (urbit-graph-let-resource
    (urbit-graph-store-action
     `((add-graph ,resource (graph . ,graph) (mark . ,mark))))))
-
 
 ;;
 ;; Hook Actions
@@ -290,28 +279,28 @@ CONTENTS is a vector or list of content objects."
   (urbit-http--let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/newest/%s/%s/%s%s"
-                                (urbit-ensig ship)
-                                name
-                                count
-                                index))))
+             (urbit-ensig ship)
+             name
+             count
+             index))))
 
 (defun urbit-graph-get-older-siblings (ship name count &optional index)
   (urbit-http--let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/node-siblings/older/%s/%s/%s%s"
-                                (urbit-ensig ship)
-                                name
-                                count
-                                (urbit-graph-index-to-ud index)))))
+             (urbit-ensig ship)
+             name
+             count
+             (urbit-graph-index-to-ud index)))))
 
 (defun urbit-graph-get-younger-siblings (ship name count &optional index)
   (urbit-http--let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/node-siblings/younger/%s/%s/%s%s"
-                                (urbit-ensig ship)
-                                name
-                                count
-                                (urbit-graph-index-to-ud index)))))
+             (urbit-ensig ship)
+             name
+             count
+             (urbit-graph-index-to-ud index)))))
 
 (defun urbit-graph-get-subset (ship name start end)
   (urbit-graph-get-wrapper
