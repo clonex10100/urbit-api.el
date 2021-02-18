@@ -29,19 +29,38 @@
 (require 'urbit-http)
 
 
+
+;;
+;; Variables
+;;
 (defvar urbit-graph-update-subscription nil
   "Urbit-http graph-store /update subscription")
 
-;; TODO: Consider combining these into one alist
-;; TODO: Probably should use hash maps instead of alists
-;; TODO: Consider cl-structifying everything. We already have to traverse in order to clean the indexes.
+;; TODO: Cache this on disk
 (defvar urbit-graph-graphs '()
   "Alist of resource symbolds to graphs.")
 
+;; TODO: How do users of the library access and watch graphs?
 (defvar urbit-graph-hooks '()
-  "Alist of resource symbols to functions that run on graph updates.")
+  "Alist of resource symbolds to hook objects for watching graphs.")
 
+;;
+;; Macros
+;;
+(pcase-defmacro urbit-graph-match-key (key)
+  "Matches if EXPVAL is an alist with KEY, and let binds val to the value of that key."
+  `(and (pred (assoc ,key))
+        (app (alist-get ,key) val)))
 
+(defmacro urbit-graph-let-resource (&rest body)
+  "Bind ship to ensigged ship, and create a resource."
+  `(let* ((ship (urbit-ensig ship))
+          (resource (urbit-graph-make-resource ship name)))
+     ,@body))
+
+;;
+;; Functinos
+;;
 (aio-defun urbit-graph-init ()
   ;; TODO: Probably should cache graphs to disk and load them
   (setq urbit-graph-graphs nil) 
@@ -52,10 +71,7 @@
                                "/updates"
                                #'urbit-graph-update-handler))))
 
-(pcase-defmacro urbit-graph-match-key (key)
-  "Matches if EXPVAL is an alist with KEY, and let binds val to the value of that key."
-  `(and (pred (assoc ,key))
-        (app (alist-get ,key) val)))
+
 
 (defun urbit-graph-index-symbol-to-list (symbol)
   (mapcar #'string-to-number
@@ -66,16 +82,18 @@
   (intern (concat (alist-get 'ship resource)
                   "/"
                   (alist-get 'name resource))))
+
 ;;
 ;; Event handling
 ;;
+
+;; TODO: should probably create the graph if it doesn't exist
 (defun urbit-graph-add-nodes-handler (data)
   "Handle add-nodes graph-update action."
   (let-alist data
     (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
-           ;; Assoc to perserve mutability in case of empty graph
-           (graph (assoc resource-symbol urbit-graph-graphs))
-           (callback (alist-get resource-symbol urbit-graph-subscriptions)))
+           (graph (alist-get resource-symbol urbit-graph-graphs))
+           (hooks (alist-get resource-symbol urbit-graph-hooks)))
       (defun add-node (graph index post)
         (if (= (length index) 1) (nconc graph (list (cons (car index) post)))
           (let ((parent (alist-get (car index) graph)))
@@ -101,7 +119,8 @@
           (let ((children (alist-get 'children (cdr node))))
             (setf children (clean-graph children)))))
       (clean-graph .graph)
-      (add-to-list 'urbit-graph-graphs (cons resource-symbol .graph)))))
+      (add-to-list 'urbit-graph-graphs
+                   (cons resource-symbol .graph)))))
 
 (defun urbit-graph-update-handler (event)
   "Handle graph-update EVENT."
@@ -110,45 +129,16 @@
       (pcase graph-update
         ((urbit-graph-match-key 'add-nodes) (urbit-graph-add-nodes-handler val))
         ((urbit-graph-match-key 'add-graph) (urbit-graph-add-graph-handler val))
+        ((urbit-graph-match-key 'remove-node) (urbit-log "Remove node not implemented"))
         ((urbit-graph-match-key 'remove-graph) (urbit-log "Remove graph not implemented"))
         (- (urbit-log "Unkown graph-update: %s" graph-update))))))
 
-;;
-;; Actions
-;;
-;; Cargo culting off of graph.ts
-(aio-defun urbit-graph-store-action (action &optional ok-callback err-callback)
-  (urbit-http-poke "graph-store"
-                   "graph-update"
-                   action
-                   ok-callback
-                   err-callback))
 
-(aio-defun urbit-graph-view-action (thread-name action)
-  (urbit-http-poke "graph-view-action"
-                   "json"
-                   thread-name
-                   action))
-
-(aio-defun urbit-graph-hook-action (action &optional ok-callback err-callback)
-  (urbit-http-poke "graph-push-hook"
-                   "graph-update"
-                   action
-                   ok-callback
-                   err-callback))
 ;;
-;; Getting
-;;
+;; Helpers
+;; 
 
-(aio-defun urbit-graph-get (ship name)
-  "Get a graph at SHIP NAME."
-  (urbit-graph-update-handler
-   (car ;; Why do we need this?
-    (aio-await (urbit-http-scry "graph-store"
-                                (format "/graph/~%s/%s"
-                                        ship
-                                        name))))))
-
+;; TODO: bad function figure out actual subscription
 (aio-defun urbit-graph-subscribe (ship name callback)
   "Subscribe to a graph at SHIP and NAME, calling CALLBACK with a list of new nodes on each update."
   (add-to-list 'urbit-graph-subscriptions
@@ -156,10 +146,13 @@
                 (urbit-graph-resource-to-symbol `((ship . ,ship)
                                                   (name . ,name)))
                 callback)))
+
+
+
 ;;
-;; Making
+;; Constructors
 ;;
-(defun urbit-graph-make-post (contents)
+(defun urbit-graph-make-post (contents &optional parent-index child-index)
   "Create a new post with CONTENTS.
 CONTENTS is a vector or list of content objects."
   (let ((contents (if (vectorp contents)
@@ -178,14 +171,162 @@ CONTENTS is a vector or list of content objects."
     (post . ,post)
     (children . ,children)))
 
-(aio-defun urbit-graph-add-node (ship name node)
-  "To graph at SHIP NAME, add NODE."
-  (aio-await (urbit-http-poke "graph-push-hook"
-                              "graph-update"
-                              `((add-nodes
-                                 (resource (ship . ,ship)
-                                           (name . ,name))
-                                 (nodes ,node))))))
+(defun urbit-graph-make-resource (ship name)
+  `(resource (ship . ,ship)
+             (name . ,name)))
+;;
+;; Actions
+;;
+(defun urbit-graph-store-action (action &optional ok-callback err-callback)
+  (urbit-http-poke "graph-store"
+                   "graph-update"
+                   action
+                   ok-callback
+                   err-callback))
+
+(defun urbit-graph-view-action (thread-name action)
+  (urbit-http-spider "graph-view-action"
+                     "json"
+                     thread-name
+                     action))
+
+(defun urbit-graph-hook-action (action &optional ok-callback err-callback)
+  (urbit-http-poke "graph-push-hook"
+                   "graph-update"
+                   action
+                   ok-callback
+                   err-callback))
+
+;;
+;; View Actions
+;;
+
+(defun urbit-graph-join (ship name)
+  (urbit-graph-let-resource
+   (urbit-graph-view-action "graph-join"
+                            `((join ,resource
+                                    (ship . ,ship))))))
+
+(defun urbit-graph-delete (name)
+  (let ((resource (urbit-graph-make-resource (ensig urbit-ship)
+                                             name)))
+    (urbit-graph-view-action "graph-delete"
+                             `((delete ,resource)))))
+
+(defun urbit-graph-leave (ship name)
+  (urbit-graph-let-resource
+   (urbit-graph-view-action "graph-leave"
+                            `((leave ,resource)))))
+
+
+;; TODO: what is to
+(defun urbit-graph-groupify (ship name to-path)
+  (urbit-graph-let-resource
+   (urbit-graph-view-action "graph-groupify"
+                            `((groupify ,resource (to . to))))))
+
+;;
+;; Store Actions
+;;
+(defun urbit-graph-add (ship name graph mark)
+  (urbit-graph-let-resource
+   (urbit-graph-store-action
+    `((add-graph ,resource (graph . ,graph) (mark . ,mark))))))
+
+
+;;
+;; Hook Actions
+;;
+;; TODO: graph.ts has some pending logic in here
+(defun urbit-graph-add-nodes (ship name nodes)
+  (urbit-graph-let-resource
+   (urbit-graph-hook-action
+    `((add-nodes ,resource (nodes . ,nodes))))
+   ;; Send the same event, with the ship desigged, to our local graph
+   (urbit-graph-update-handler
+    `((data
+       (graph-update
+        (add-nodes
+         ,(urbit-graph-make-resource (desig ship)
+                                     name)
+         (nodes . ,nodes))))))))
+
+(defun urbit-graph-add-node (ship name node)
+  (urbit-graph-add-nodes ship name
+                         (let ((index (alist-get 'index
+                                                 (alist-get 'post node))))
+                           (urbit-log "Adding node index %s" index)
+                           `((index node)))))
+
+(defun urbit-graph-remove-nodes (ship name indices)
+  (urbit-graph-let-resource
+   (urbit-graph-hook-action `((remove-nodes ,resource (indices . indices))))))
+
+;;
+;; Fetching
+;;
+(aio-defun urbit-graph-get-keys ()
+  (let ((keys
+         (aio-await
+          (urbit-http-scry "graph-store" "/keys"))))
+    ;; TODO: Our state pipeline doesn't know what to do with keys
+    (urbit-graph-update-handler `((data . keys)))))
+
+(aio-defun urbit-graph-get-wrapper (path)
+  "Scries graph-store at PATH, and feeds the result to `urbit-graph-update-handler'"
+  (urbit-graph-update-handler
+   (car
+    (aio-await
+     (urbit-http-scry "graph-store" path)))))
+
+(defun urbit-graph-get (ship name)
+  "Get a graph at SHIP NAME."
+  (urbit-graph-get-wrapper
+   (format "/graph/%s/%s"
+           (urbit-ensig ship)
+           name)))
+
+(defun urbit-graph-get-newest (ship name count &optional index)
+  (urbit-http--let-if-nil ((index ""))
+    (urbit-graph-get-wrapper
+     (format "/newest/%s/%s/%s%s"
+                                (urbit-ensig ship)
+                                name
+                                count
+                                index))))
+
+(defun urbit-graph-get-older-siblings (ship name count &optional index)
+  (urbit-http--let-if-nil ((index ""))
+    (urbit-graph-get-wrapper
+     (format "/node-siblings/older/%s/%s/%s%s"
+                                (urbit-ensig ship)
+                                name
+                                count
+                                (urbit-graph-index-to-ud index)))))
+
+(defun urbit-graph-get-younger-siblings (ship name count &optional index)
+  (urbit-http--let-if-nil ((index ""))
+    (urbit-graph-get-wrapper
+     (format "/node-siblings/younger/%s/%s/%s%s"
+                                (urbit-ensig ship)
+                                name
+                                count
+                                (urbit-graph-index-to-ud index)))))
+
+(defun urbit-graph-get-subset (ship name start end)
+  (urbit-graph-get-wrapper
+   (format "/graph-subset/%s/%s/%s/%s"
+           ship
+           name
+           end
+           start)))
+
+(defun urbit-graph-get-node (ship name index)
+  (urbit-graph-get-wrapper
+   (format "/%s/%s%s"
+           ship
+           name
+           (urbit-graph-index-to-ud index))))
 
 
 
