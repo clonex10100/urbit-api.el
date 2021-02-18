@@ -55,6 +55,14 @@
       (substring ship 1)
     ship))
 
+(defun urbit-ensig (ship)
+  "Add a sig to SHIP string if it doesn't have one"
+  (if (and (> (length ship) 0)
+           (eq (elt ship 0)
+               ?~))
+      ship
+    (concat "~" ship)))
+
 (defun urbit-log (&rest msg-args)
   "Log to `urbit-log-buffer'.  MSG-ARGS are passed to `format'."
   (with-current-buffer (get-buffer-create urbit-log-buffer)
