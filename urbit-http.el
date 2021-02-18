@@ -145,7 +145,9 @@ Uses `urbit-http--cookie' for authentication."
       :headers `(("Content-Type" . "application/json")
                  ,@(when first-run `(("Cookie" . ,urbit-http--cookie))))
       :data (when object (json-encode object))
-      :parser #'json-read
+      :parser (lambda () (json-parse-buffer
+                     :object-type 'alist
+                     :null-object nil))
       :encoding 'utf-8
       :success (cl-function
                 (lambda (&key data &allow-other-keys)
@@ -284,12 +286,13 @@ QUIT-CALLBACK is called on quit."
                (assq-delete-all .id urbit-http--subscription-handlers)))
         (--- (urbit-log "Invalid subscription response."))))))
 
-(defun urbit-http--sse-callback (sse)
+(aio-defun urbit-http--sse-callback (sse)
   "Handle server sent SSEs."
   (urbit-log "SSE recieved: %S" sse)
-  (aio-wait-for (urbit-http-ack (string-to-number (alist-get 'id sse))))
+  (aio-await (urbit-http-ack (string-to-number (alist-get 'id sse))))
   (let* ((data (json-parse-string (alist-get 'data sse)
-                                  :object-type 'alist)))
+                                  :object-type 'alist
+                                  :null-object nil)))
     (let-alist data
       (cond ((and (string= .response "poke")
                   (assq .id urbit-http--poke-handlers))
