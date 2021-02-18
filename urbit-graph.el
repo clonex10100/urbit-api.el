@@ -33,6 +33,8 @@
   "Urbit-http graph-store /update subscription")
 
 ;; TODO: Consider combining these into one alist
+;; TODO: Probably should use hash maps instead of alists
+;; TODO: Consider cl-structifying everything. We already have to traverse in order to clean the indexes.
 (defvar urbit-graph-graphs '()
   "Alist of resource symbolds to graphs.")
 
@@ -41,7 +43,9 @@
 
 
 (aio-defun urbit-graph-init ()
-  (setq urbit-graph-subscriptions nil)
+  ;; TODO: Probably should cache graphs to disk and load them
+  (setq urbit-graph-graphs nil) 
+  (setq urbit-graph-hooks nil)
   (setq urbit-graph-update-subscription
         (aio-await
          (urbit-http-subscribe "graph-store"
@@ -53,26 +57,26 @@
   `(and (pred (assoc ,key))
         (app (alist-get ,key) val)))
 
-;;
-;; Event handling
-;;
-
 (defun urbit-graph-index-symbol-to-list (symbol)
   (mapcar #'string-to-number
           (split-string (symbol-name symbol) "/" t)))
 
+(defun urbit-graph-resource-to-symbol (resource)
+  "Turn a RESOURCE object into a symbol."
+  (intern (concat (alist-get 'ship resource)
+                  "/"
+                  (alist-get 'name resource))))
+;;
+;; Event handling
+;;
 (defun urbit-graph-add-nodes-handler (data)
   "Handle add-nodes graph-update action."
-  (urbit-log "Add nodes")
   (let-alist data
     (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
            ;; Assoc to perserve mutability in case of empty graph
            (graph (assoc resource-symbol urbit-graph-graphs))
            (callback (alist-get resource-symbol urbit-graph-subscriptions)))
       (defun add-node (graph index post)
-        (urbit-log "Adding node: %s" post)
-        (urbit-log "Graph: %s" graph)
-        (urbit-log "Index: %s" index)
         (if (= (length index) 1) (nconc graph (list (cons (car index) post)))
           (let ((parent (alist-get (car index) graph)))
             (if (not parent) (urbit-log "Parent not found for: %s" index)
@@ -88,9 +92,15 @@
   (let-alist data
     (let ((resource-symbol (urbit-graph-resource-to-symbol .resource)))
       (when (assoc resource-symbol urbit-graph-graphs)
-        (urbit-log "Add graph: Graph %s already exists." resource-symbol))
-      ;; TODO: Do we need to store the mark and overwrite metadata?
-      ;; TODO: Clean up the indexes (remove the slashes)
+        (urbit-log "Add Graph: Graph %s already added" resource-symbol))
+      ;; Convert all of the indexes to numbers
+      (defun clean-graph (graph)
+        (dolist (node graph)
+          (setf (car node)
+                (string-to-number (substring (symbol-name (car node)))))
+          (let ((children (alist-get 'children (cdr node))))
+            (setf children (clean-graph children)))))
+      (clean-graph .graph)
       (add-to-list 'urbit-graph-graphs (cons resource-symbol .graph)))))
 
 (defun urbit-graph-update-handler (event)
@@ -103,21 +113,10 @@
         ((urbit-graph-match-key 'remove-graph) (urbit-log "Remove graph not implemented"))
         (- (urbit-log "Unkown graph-update: %s" graph-update))))))
 
-(defun urbit-graph-parse-update (event)
-  "Parse a graph-update EVENT into a pair of resource symbol and node list."
-  (let ((object (alist-get
-                 'add-nodes
-                 (alist-get
-                  'graph-update
-                  event))))
-    (cons (urbit-graph-resource-to-symbol
-           (alist-get 'resource object))
-          (alist-get 'nodes object))))
-
 ;;
 ;; Actions
 ;;
-
+;; Cargo culting off of graph.ts
 (aio-defun urbit-graph-store-action (action &optional ok-callback err-callback)
   (urbit-http-poke "graph-store"
                    "graph-update"
@@ -137,12 +136,29 @@
                    action
                    ok-callback
                    err-callback))
+;;
+;; Getting
+;;
 
-(defun urbit-graph-resource-to-symbol (resource)
-  "Turn a RESOURCE object into a symbol."
-  (intern (concat (alist-get 'ship resource)
-                  (alist-get 'name resource))))
+(aio-defun urbit-graph-get (ship name)
+  "Get a graph at SHIP NAME."
+  (urbit-graph-update-handler
+   (car ;; Why do we need this?
+    (aio-await (urbit-http-scry "graph-store"
+                                (format "/graph/~%s/%s"
+                                        ship
+                                        name))))))
 
+(aio-defun urbit-graph-subscribe (ship name callback)
+  "Subscribe to a graph at SHIP and NAME, calling CALLBACK with a list of new nodes on each update."
+  (add-to-list 'urbit-graph-subscriptions
+               (cons
+                (urbit-graph-resource-to-symbol `((ship . ,ship)
+                                                  (name . ,name)))
+                callback)))
+;;
+;; Making
+;;
 (defun urbit-graph-make-post (contents)
   "Create a new post with CONTENTS.
 CONTENTS is a vector or list of content objects."
@@ -162,15 +178,6 @@ CONTENTS is a vector or list of content objects."
     (post . ,post)
     (children . ,children)))
 
-(aio-defun urbit-graph-get (ship name)
-  "Get a graph at SHIP NAME."
-  (urbit-graph-update-handler
-   (car ;; Why do we need this?
-    (aio-await (urbit-http-scry "graph-store"
-                                (format "/graph/~%s/%s"
-                                        ship
-                                        name))))))
-
 (aio-defun urbit-graph-add-node (ship name node)
   "To graph at SHIP NAME, add NODE."
   (aio-await (urbit-http-poke "graph-push-hook"
@@ -180,13 +187,6 @@ CONTENTS is a vector or list of content objects."
                                            (name . ,name))
                                  (nodes ,node))))))
 
-(aio-defun urbit-graph-subscribe (ship name callback)
-  "Subscribe to a graph at SHIP and NAME, calling CALLBACK with a list of new nodes on each update."
-  (add-to-list 'urbit-graph-subscriptions
-               (cons
-                (urbit-graph-resource-to-symbol `((ship . ,ship)
-                                                  (name . ,name)))
-                callback)))
 
 
 (provide 'urbit-graph)
