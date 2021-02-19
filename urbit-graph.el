@@ -231,21 +231,25 @@ CONTENTS is a vector or list of content objects."
   (urbit-graph-let-resource
    (urbit-graph-hook-action
     `((add-nodes ,resource (nodes . ,nodes))))
-   ;; Send the same event, with the ship desigged, to our local graph
-   (urbit-graph-update-handler
-    `((data
-       (graph-update
-        (add-nodes
-         ,(urbit-graph-make-resource (desig ship)
-                                     name)
-         (nodes . ,nodes))))))))
+   ;; Landscape manually feeds the add-nodes event into the update
+   ;; handler, but if we don't it still get's added through SSE /updates, so
+   ;; I'm going to leave this commmented out
+
+   ;; (urbit-graph-update-handler
+   ;;  `((graph-update
+   ;;     (add-nodes
+   ;;      ,(urbit-graph-make-resource (urbit-desig ship)
+   ;;                                  name)
+   ;;      (nodes . ,nodes)))))
+   ))
 
 (defun urbit-graph-add-node (ship name node)
   (urbit-graph-add-nodes ship name
-                         (let ((index (alist-get 'index
-                                                 (alist-get 'post node))))
+                         (let ((index (intern
+                                       (alist-get 'index
+                                                  (alist-get 'post node)))))
                            (urbit-log "Adding node index %s" index)
-                           `((index node)))))
+                           `((,index . ,node)))))
 
 (defun urbit-graph-remove-nodes (ship name indices)
   (urbit-graph-let-resource
@@ -259,14 +263,23 @@ CONTENTS is a vector or list of content objects."
          (aio-await
           (urbit-http-scry "graph-store" "/keys"))))
     ;; TODO: Our state pipeline doesn't know what to do with keys
-    (urbit-graph-update-handler `((data . keys)))))
+    (urbit-graph-update-handler (car keys))
+    ;; Return a list of resource symbols
+    (mapcar #'urbit-graph-resource-to-symbol
+     (cdar (cdaar keys)))))
 
 (aio-defun urbit-graph-get-wrapper (path)
-  "Scries graph-store at PATH, and feeds the result to `urbit-graph-update-handler'"
-  (urbit-graph-update-handler
-   (car
-    (aio-await
-     (urbit-http-scry "graph-store" path)))))
+  "Scries graph-store at PATH, and feeds the result to `urbit-graph-update-handler'.
+Returns a list of nodes"
+  (let ((result (car
+                 (aio-await
+                  (urbit-http-scry "graph-store" path)))))
+    (urbit-graph-update-handler result)
+    ;; TODO: Parse add-nodes here to remove the slashes from keys
+    (alist-get 'nodes
+               (cdar ;; Strip off type of graph-update
+                (cdar  ;; Strip off graph-update
+                 result)))))
 
 (defun urbit-graph-get (ship name)
   "Get a graph at SHIP NAME."
