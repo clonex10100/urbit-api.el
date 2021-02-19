@@ -181,7 +181,7 @@
            (ship (car resource))
            (name (cdr resource))
            (buffer (concat "*urbit-" ship "/" name "-chat*")))
-      (if (buffer-live-p buffer) (switch-to-buffer buffer)
+      (if (get-buffer buffer) (switch-to-buffer buffer)
         (progn
           (switch-to-buffer buffer)
           (urbit-chat-mode ship name))))))
