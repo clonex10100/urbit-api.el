@@ -80,32 +80,40 @@
   (intern (concat (alist-get 'ship resource)
                   "/"
                   (alist-get 'name resource))))
-
+(defun urbit-graph-symbol-to-resource (symbol)
+  (let ((split (split-string (symbol-name symbol) "/")))
+    (cons (car split)
+          (cadr split))))
 ;;
 ;; Event handling
 ;;
-;; TODO: should probably create the graph if it doesn't exist
 (defun urbit-graph-add-nodes-handler (data)
   "Handle add-nodes graph-update action."
   (let-alist data
     (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
            (graph (alist-get resource-symbol urbit-graph-graphs))
-           (hooks (alist-get resource-symbol urbit-graph-hooks)))
-      (defun add-node (graph index post)
-        (if (= (length index) 1) (nconc graph (list (cons (car index) post)))
-          (let ((parent (alist-get (car index) graph)))
-            (if (not parent) (urbit-log "Parent not found for: %s" index)
-              (add-node (assoc 'children parent)
-                        (cdr index)
-                        post)))))
-      (dolist (node .nodes)
-        (let ((index (urbit-graph-index-symbol-to-list (car node)))
-              (post (cdr node)))
-          (add-node graph index post))))))
+           (hook (alist-get resource-symbol urbit-graph-hooks)))
+      ;; (unless graph
+      ;;   (add-to-list 'urbit-graph-graphs
+      ;;                (cons resource-symbol nil))
+      ;;   (setq graph (assoc resource-symbol urbit-graph-graphs)))
+      ;; (defun add-node (graph index post)
+      ;;   (if (= (length index) 1) (nconc graph (list (cons (car index) post)))
+      ;;     (let ((parent (alist-get (car index) graph)))
+      ;;       (if (not parent) (urbit-log "Parent not found for: %s" index)
+      ;;         (add-node (assoc 'children parent)
+      ;;                   (cdr index)
+      ;;                   post)))))
+      ;; (dolist (node .nodes)
+      ;;   (let ((index (urbit-graph-index-symbol-to-list (car node)))
+      ;;         (post (cdr node)))
+      ;;     (add-node graph index post)))
+      (when hook (funcall hook .nodes)))))
 
 (defun urbit-graph-add-graph-handler (data)
   (let-alist data
-    (let ((resource-symbol (urbit-graph-resource-to-symbol .resource)))
+    (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
+          (hook (alist-get resource-symbol urbit-graph-hooks)))
       (when (assoc resource-symbol urbit-graph-graphs)
         (urbit-log "Add Graph: Graph %s already added" resource-symbol))
       ;; Convert all of the indexes to numbers
@@ -117,27 +125,38 @@
             (setf children (clean-graph children)))))
       (clean-graph .graph)
       (add-to-list 'urbit-graph-graphs
-                   (cons resource-symbol .graph)))))
+                   (cons resource-symbol .graph))
+      (when hook (funcall hook .nodes)))))
 
+;; Disabling local graph storage for now, because it seems useless without a reactive api. Just call hook functions
 (defun urbit-graph-update-handler (event)
   "Handle graph-update EVENT."
   (let ((graph-update (alist-get 'graph-update event)))
     (if (not graph-update) (urbit-log "Unknown graph event: %s" event)
       (pcase graph-update
-        ((urbit-graph-match-key 'add-nodes) (urbit-graph-add-nodes-handler val))
-        ((urbit-graph-match-key 'add-graph) (urbit-graph-add-graph-handler val))
+        ((urbit-graph-match-key 'add-nodes)
+         (urbit-graph-add-nodes-handler val)
+         )
+        ((urbit-graph-match-key 'add-graph)
+         ;; (urbit-graph-add-graph-handler val)
+         (urbit-log "Got graph add")
+         )
         ((urbit-graph-match-key 'remove-node) (urbit-log "Remove node not implemented"))
         ((urbit-graph-match-key 'remove-graph) (urbit-log "Remove graph not implemented"))
         (- (urbit-log "Unkown graph-update: %s" graph-update))))))
 
-;; TODO: bad function figure out actual subscription
-(aio-defun urbit-graph-subscribe (ship name callback)
-  "Subscribe to a graph at SHIP and NAME, calling CALLBACK with a list of new nodes on each update."
-  (add-to-list 'urbit-graph-subscriptions
-               (cons
-                (urbit-graph-resource-to-symbol `((ship . ,ship)
-                                                  (name . ,name)))
-                callback)))
+(defun urbit-graph-watch (ship name callback)
+  "Everytime the graph at SHIP NAME is updated, your callback will be called with the new nodes."
+  (let ((resource (urbit-graph-resource-to-symbol `((ship . ,ship)
+                                                    (name . ,name)))))
+    (add-to-list 'urbit-graph-hooks
+                 (cons resource callback))
+
+    resource))
+
+(defun urbit-graph-stop-watch (resource)
+  (setq urbit-graph-hooks
+        (assq-delete-all resource urbit-graph-hooks)))
 
 ;;
 ;; Constructors
@@ -157,8 +176,7 @@ CONTENTS is a vector or list of content objects."
 
 (defun urbit-graph-make-node (post &optional children)
   "Make an urbit graph node."
-  `(,(alist-get 'index post)
-    (post . ,post)
+  `((post . ,post)
     (children . ,children)))
 
 (defun urbit-graph-make-resource (ship name)
