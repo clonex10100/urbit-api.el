@@ -101,7 +101,7 @@
          (push-text
           (lambda ()
             (when text
-              (push `((text . ,(string-join text " ")))
+              (push `((text . ,(string-join (reverse text) " ")))
                     contents)
               (setq text '())))))
     (dolist (word (split-string message "\s"))
