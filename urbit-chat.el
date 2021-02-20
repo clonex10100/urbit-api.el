@@ -33,6 +33,11 @@
   :prefix "urbit-chat-"
   :group 'applications)
 
+(defcustom urbit-prompt "%n> "
+  "Prompt string to use in urbit chat buffers."
+  :type 'string
+  :initialize 'custom-initialize-default)
+
 (defcustom urbit-chat-url-color "blue"
   "Color for urls"
   :group 'urbit-chat)
@@ -52,7 +57,7 @@
   :group 'weechat
   :prefix "weechat-")
 
-(defface urbit-chat-prompt-face '((t :inherit minibuffer-prompt))
+(defface urbit-chat-prompt-face '()
   "Face used for prompt in urbit chat"
   :group 'urbit-faces)
 
@@ -226,16 +231,21 @@
 (defun urbit-chat-update-prompt ()
   (save-excursion
     (let ((start (marker-position urbit-chat-prompt-start-marker))
+          (prompt (or urbit-prompt ""))
           (inhibit-read-only t))
+      (mapc (lambda (rep)
+              (setq prompt
+                    (replace-regexp-in-string (car rep) (cdr rep) prompt)))
+            (list (cons "%n" urbit-ship)
+                  (cons "%s" urbit-chat-chat)))
       (goto-char urbit-chat-prompt-end-marker)
-      (insert-before-markers "Enter message: ")
+      (insert-before-markers prompt)
       (set-marker urbit-chat-prompt-start-marker start)
       (add-text-properties urbit-chat-prompt-start-marker
                            urbit-chat-prompt-end-marker
-                           (list 'read-only t
-                                 'field t
-                                 'face 'urbit-chat-prompt-face
-                                 'rear-nonsticky t)))))
+                           '(read-only t
+                             face urbit-chat-prompt-face
+                             rear-nonsticky t)))))
 
 (aio-defun urbit-chat-mode (ship name)
   (kill-all-local-variables)
