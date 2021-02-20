@@ -26,11 +26,16 @@
 (require 'aio)
 (require 'urbit)
 (require 'urbit-graph)
-
+(require 'urbit-faces)
 (defgroup urbit-chat nil
   "Urbit chat client for Emacs."
   :prefix "urbit-chat-"
   :group 'applications)
+
+(defcustom urbit-prompt "%n> "
+  "Prompt string to use in urbit chat buffers."
+  :type 'string
+  :initialize 'custom-initialize-default)
 
 (defcustom urbit-chat-initial-messages 15
   "How many past messages to load when opening a chat.")
@@ -56,9 +61,11 @@
 ;;     (hash))
 ;;    (children))
 (defun urbit-chat-format-node (node)
-  (let ((post (alist-get 'post node)))
+  (let* ((post (alist-get 'post node))
+         (ours? (string= urbit-ship (alist-get 'author post)))
+         (pface (if ours? 'urbit-my-nick 'urbit-other-nick)))
     (let-alist post
-      (concat .author ": "
+      (concat (urbit-facify .author pface) ": "
               (urbit-chat-format-contents .contents)
               "\n"))))
 
@@ -124,14 +131,22 @@
 (defun urbit-chat-update-prompt ()
   (save-excursion
     (let ((start (marker-position urbit-chat-prompt-start-marker))
+          (prompt (or urbit-prompt ""))
           (inhibit-read-only t))
-      (goto-char urbit-chat-prompt-end-marker)
-      (insert-before-markers "Enter message: ")
-      (set-marker urbit-chat-prompt-start-marker start)
-      (add-text-properties urbit-chat-prompt-start-marker
-                           urbit-chat-prompt-end-marker
-                           '(read-only t
-                             rear-nonsticky t)))))
+  (mapc (lambda (rep)
+            (setq prompt
+	          (replace-regexp-in-string (car rep) (cdr rep) prompt)))
+            (list (cons "%n" urbit-ship)
+	          (cons "%s" urbit-chat-chat)))
+      (message prompt)
+    (goto-char urbit-chat-prompt-end-marker)
+    (insert-before-markers prompt)
+    (set-marker urbit-chat-prompt-start-marker start)
+    (add-text-properties        urbit-chat-prompt-start-marker
+                         urbit-chat-prompt-end-marker
+                         (list
+                          'read-only t
+                          'rear-nonsticky t)))))
 
 (aio-defun urbit-chat-mode (ship name)
   (kill-all-local-variables)
