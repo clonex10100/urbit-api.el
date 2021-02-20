@@ -62,24 +62,64 @@
   "Regex to recognize a url")
 
 (defun urbit-chat-send-message (ship chat message)
-   (urbit-graph-add-node
-    ship
-    chat
-    (urbit-graph-make-node
-     (urbit-graph-make-post `(((text . ,message)))))))
+  (urbit-graph-add-node
+   ship
+   chat
+   (urbit-graph-make-node
+    (urbit-graph-make-post (urbit-chat-tokenize-message message)))))
 
-;; Example of a chat node:
-;; (170141184504919577857035894011388936323
-;;    (post
-;;     (index . "/170141184504919577857035894011388936323")
-;;     (author . "risruc-habteb")
-;;     (time-sent . 1613694524117)
-;;     (signatures .
-;;                 [])
-;;     (contents .
-;;               [((text . "classic stuff"))])
-;;     (hash))
-;;    (children))
+(defun urbit-chat-url-p (string)
+  (save-match-data
+    (if-let ((start (string-match urbit-chat-url-regex string)))
+        (and (= start 0)
+             (= (match-end 0)
+                (length string))))))
+
+(defun urbit-chat-patp-to-syls (string)
+  (let ((string (replace-regexp-in-string "[\\^~-]" "" string))
+        (result '()))
+    (while (> (length string) 3)
+      (push (substring string 0 3) result)
+      (setq string (substring string 3)))
+    (when (> (length string) 0)
+      (push string result))
+    (reverse result)))
+
+;; TODO: real validation
+(defun urbit-chat-patp-p (string)
+  (and (> (length string) 0)
+       (= (elt string 0) ?~)))
+
+(defun urbit-chat-tokenize-message (message)
+  (let* ((contents ())
+         (text '())
+         (push-text
+          (lambda ()
+            (when text
+              (push `((text . ,(string-join text " ")))
+                    contents)
+              (setq text '())))))
+    (dolist (word (split-string message "\s"))
+      (pcase word
+        ((pred urbit-chat-url-p)
+         (funcall push-text)
+         (push `((url . ,word))
+               contents))
+        ((pred urbit-chat-patp-p)
+         (funcall push-text)
+         (urbit-log "word: %s" word)
+         (push `((mention . ,word))
+               contents))
+        (- (push word text))))
+    (funcall push-text)
+    (apply #'vector (reverse contents))))
+
+(defun urbit-chat-add-string-properties (string properties)
+  (add-text-properties 0 (length string)
+                       properties
+                       string)
+  string)
+
 (defun urbit-chat-color-patp (patp)
   (cond ((string= patp urbit-ship)
          (urbit-chat-add-string-properties patp `(face (:foreground ,urbit-chat-your-patp-color))))
