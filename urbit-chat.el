@@ -208,10 +208,11 @@
   (interactive)
   (let ((msg (buffer-substring urbit-chat-prompt-end-marker
                                (point-max))))
-    (delete-region urbit-chat-prompt-end-marker
-                   (point-max))
-    (urbit-chat-send-message urbit-chat-ship urbit-chat-chat msg)
-    (point-max)))
+    (when (> (length msg) 0)
+      (delete-region urbit-chat-prompt-end-marker
+                     (point-max))
+      (urbit-chat-send-message urbit-chat-ship urbit-chat-chat msg)
+      (point-max))))
 
 (defvar urbit-chat-mode-map
   (let ((map (make-sparse-keymap)))
