@@ -21,6 +21,7 @@
 ;;; Commentary:
 
 ;; Simple urbit chat application
+;; User interface code heavily inspired by weechat.el
 
 ;;; Code:
 (require 'aio)
@@ -32,10 +33,34 @@
   :prefix "urbit-chat-"
   :group 'applications)
 
+(defcustom urbit-chat-url-color "blue"
+  "Color for urls"
+  :group 'urbit-chat)
+
+(defcustom urbit-chat-your-patp-color "green"
+  "Color for your patp"
+  :group 'urbit-chat)
+
+(defcustom urbit-chat-other-patp-colors '("DarkGoldenRod")
+  "List of possible colors for patps.")
+
 (defcustom urbit-chat-initial-messages 15
   "How many past messages to load when opening a chat.")
 
-;; TODO: parse urls and stuff
+(defgroup urbit-chat-faces nil
+  "Urbit chat faces"
+  :group 'weechat
+  :prefix "weechat-")
+
+(defface urbit-chat-prompt-face '((t :inherit minibuffer-prompt))
+  "Face used for prompt in urbit chat"
+  :group 'urbit-faces)
+
+;; Stolen from weechat.el
+(defconst urbit-chat-url-regex
+  "\\(www\\.\\|\\(s?https?\\|ftp\\|file\\|gopher\\|news\\|telnet\\|wais\\|mailto\\):\\)\\(//[-[:alnum:]_.]+:[0-9]*\\)?[-[:alnum:]_=!?#$@~`%&*+\\/:;.,()]+[-[:alnum:]_=#$@~`%&*+\\/()]"
+  "Regex to recognize a url")
+
 (defun urbit-chat-send-message (ship chat message)
    (urbit-graph-add-node
     ship
@@ -55,31 +80,68 @@
 ;;               [((text . "classic stuff"))])
 ;;     (hash))
 ;;    (children))
-(defun urbit-chat-format-node (node)
-  (let ((post (alist-get 'post node)))
-    (let-alist post
-      (concat .author ": "
-              (urbit-chat-format-contents .contents)
-              "\n"))))
+(defun urbit-chat-color-patp (patp)
+  (cond ((string= patp urbit-ship)
+         (urbit-chat-add-string-properties patp `(face (:foreground ,urbit-chat-your-patp-color))))
+        ((= (length urbit-chat-other-patp-colors) 0) patp)
+        (t
+         (urbit-chat-add-string-properties patp `(face
+                                                  (:foreground
+                                                   ,(elt urbit-chat-other-patp-colors
+                                                         (% (sxhash-equal patp)
+                                                            (length urbit-chat-other-patp-colors)))))))))
+
+(defun urbit-chat-format-url (url)
+  (add-text-properties 0 (length url)
+                       (list 
+                        'mouse-face t
+                        'follow-link t
+                        'mouse-face t
+                        'keymap (let ((map (make-sparse-keymap)))
+                                  (let ((a (lambda ()
+                                             (interactive)
+                                             (urbit-log "boo")
+                                             (browse-url url))))
+                                    (define-key map [mouse-2] a)
+                                    (define-key map (kbd "RET") a))
+                                  map)
+                        'face `(:foreground
+                                ,urbit-chat-url-color
+                                :underline
+                                t))
+                       url)
+  url)
 
 (defun urbit-chat-format-contents (contents)
   (urbit-log "content: %s" contents)
-  (string-join
-   (mapcar (lambda (content)
-             (pcase content
-               ((and (app caar 'text)
-                     (app cdar text))
-                text)
-               ((and (app caar 'url)
-                     (app cdar url))
-                (concat "*" url "*"))
-               (x (urbit-log "Unknown type %s" x) "")))
-           contents)))
+  (replace-regexp-in-string
+   "^ \\| $" ""
+   (string-join
+    (mapcar (lambda (content)
+              (pcase content
+                ((and (app caar 'text)
+                      (app cdar text))
+                 text)
+                ((and (app caar 'url)
+                      (app cdar url))
+                 (concat " " (urbit-chat-format-url url) " "))
+                ((and (app caar 'mention)
+                      (app cdar name))
+                 (concat " " (urbit-chat-color-patp name) " "))
+                (x (urbit-log "Unknown type %s" x) "")))
+            contents))))
+
+(defun urbit-chat-format-node (node)
+  (let ((post (alist-get 'post node)))
+    (let-alist post
+      (concat (urbit-chat-color-patp .author) ": "
+              (urbit-chat-format-contents .contents)
+              "\n"))))
 
 (defun urbit-chat-handle-nodes (nodes buffer)
   (with-current-buffer buffer
-      (dolist (node nodes)
-        (urbit-chat-insert-message (urbit-chat-format-node node)))))
+    (dolist (node nodes)
+      (urbit-chat-insert-message (urbit-chat-format-node node)))))
 
 (defun urbit-chat-insert-message (message)
   (save-excursion
@@ -130,8 +192,10 @@
       (set-marker urbit-chat-prompt-start-marker start)
       (add-text-properties urbit-chat-prompt-start-marker
                            urbit-chat-prompt-end-marker
-                           '(read-only t
-                             rear-nonsticky t)))))
+                           (list 'read-only t
+                                 'field t
+                                 'face 'urbit-chat-prompt-face
+                                 'rear-nonsticky t)))))
 
 (aio-defun urbit-chat-mode (ship name)
   (kill-all-local-variables)
@@ -144,35 +208,34 @@
   (urbit-chat-update-prompt)
 
   (let ((buffer (current-buffer)))
-    (let ((nodes ))
-      (urbit-chat-handle-nodes
-       (sort (aio-await
-              (urbit-graph-get-newest ship
-                                      name
-                                      urbit-chat-initial-messages))
-             ;; HACK: clients should probably not need to parse and sort data
-             ;; recieved from urbit-graph
-             (lambda (a b)
-               (< (car (urbit-graph-index-symbol-to-list (car a)))
-                  (car (urbit-graph-index-symbol-to-list (car b))))))
-       buffer)
-      (let ((resource
-             (urbit-graph-watch ship
-                                name
-                                (lambda (nodes)
-                                  (urbit-log "Hit the lambda")
-                                  (urbit-chat-handle-nodes
-                                   nodes
-                                   buffer)))))
-        (add-hook 'kill-buffer-hook
-                  (lambda ()
-                    (urbit-graph-stop-watch resource))
-                  nil
-                  'local-hook)))
-    (run-mode-hooks 'urbit-chat-mode-hook)))
+    (urbit-chat-handle-nodes
+     (sort (aio-await
+            (urbit-graph-get-newest ship
+                                    name
+                                    urbit-chat-initial-messages))
+           ;; HACK: clients should probably not need to parse and sort data
+           ;; recieved from urbit-graph
+           (lambda (a b)
+             (< (car (urbit-graph-index-symbol-to-list (car a)))
+                (car (urbit-graph-index-symbol-to-list (car b))))))
+     buffer)
+    (let ((resource
+           (urbit-graph-watch ship
+                              name
+                              (lambda (nodes)
+                                (urbit-chat-handle-nodes
+                                 nodes
+                                 buffer)))))
+      (add-hook 'kill-buffer-hook
+                (lambda ()
+                  (urbit-graph-stop-watch resource))
+                nil
+                'local-hook)))
+  (run-mode-hooks 'urbit-chat-mode-hook))
 
 
 ;; TODO: cache keys so that starting chat's doesn't take so long
+;; TODO: find a way to show group names with keys, only show chat keys
 (defun urbit-chat-start ()
   (interactive)
   (let ((read (completing-read "Choose a chat: "
@@ -180,12 +243,13 @@
     (let* ((resource (urbit-graph-symbol-to-resource (intern read)))
            (ship (car resource))
            (name (cdr resource))
-           (buffer (concat "*urbit-" ship "/" name "-chat*")))
+           (buffer (concat "*urbit-chat-" ship "/" name)))
       (if (get-buffer buffer) (switch-to-buffer buffer)
         (progn
           (switch-to-buffer buffer)
           (urbit-chat-mode ship name))))))
 
+;; TODO: Add a way to load more past messages
 
 (provide 'urbit-chat)
 ;;; urbit-chat.el ends here
