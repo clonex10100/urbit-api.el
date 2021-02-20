@@ -148,7 +148,7 @@
                                              (urbit-log "boo")
                                              (browse-url url))))
                                     (define-key map [mouse-2] a)
-                                    (define-key map (kbd "RET") a))
+                                    (define-key map (kbd "<return>") a))
                                   map)
                         'face `(:foreground
                                 ,urbit-chat-url-color
@@ -197,11 +197,12 @@
       (add-text-properties start (point)
                            '(read-only t)))))
 
-(defun urbit-chat-self-insert-command (n)
+(defun urbit-chat-self-insert-command (n &optional c)
   (interactive "p")
   (when (< (point) urbit-chat-prompt-end-marker)
     (goto-char (point-max)))
-  (self-insert-command n))
+  (if c (self-insert-command n c)
+    (self-insert-command n)))
 
 (defun urbit-chat-return ()
   (interactive)
@@ -214,7 +215,10 @@
 
 (defvar urbit-chat-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "RET") 'urbit-chat-return)
+    (define-key map (kbd "<C-return>") (lambda ()
+                                         (interactive)
+                                         (urbit-chat-self-insert-command 1 ?\n)))
+    (define-key map (kbd "<return>") #'urbit-chat-return)
     map))
 
 (substitute-key-definition
