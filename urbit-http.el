@@ -289,7 +289,7 @@ QUIT-CALLBACK is called on quit."
 (aio-defun urbit-http--sse-callback (sse)
   "Handle server sent SSEs."
   (urbit-log "SSE recieved: %S" sse)
-  (aio-await (urbit-http-ack (string-to-number (alist-get 'id sse))))
+  (urbit-http-ack (string-to-number (alist-get 'id sse)))
   (let* ((data (json-parse-string (alist-get 'data sse)
                                   :object-type 'alist
                                   :null-object nil)))
