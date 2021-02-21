@@ -158,36 +158,33 @@ Uses `urbit-http--cookie' for authentication."
                   (funcall callback data)))
       :error (cl-function
               (lambda (&rest args &key error-thrown &allow-oter-keys)
-                (funcall callback error-thrown)))
-      :complete (lambda (&rest _)
-                  (funcall callback nil)))
+                (funcall callback error-thrown))))
     promise))
 
-(aio-defun urbit-http--send-message (action &optional data)
+(aio-defun urbit-http--send-message (action id &optional data)
+  "Send a message to urbit with ID, ACTION and DATA. Return id of sent message."
+  (aio-await (urbit-http--json-request-wrapper "PUT"
+                                               urbit-http--channel-url
+                                               `[((id . ,id)
+                                                  (action . ,action)
+                                                  ,@data)]))
+  id)
+
+(defun urbit-http--send-message-auto-id (action &optional data)
   "Send a message to urbit with ACTION and DATA. Return id of sent message."
-  (let ((id (urbit-http--event-id)))
-    (aio-await (urbit-http--json-request-wrapper "PUT"
-                                                 urbit-http--channel-url
-                                                 `[((id . ,id)
-                                                    (action . ,action)
-                                                    ,@data)]))
-    id))
+  (urbit-http--send-message action (urbit-http--event-id) data))
+
 
 (aio-defun urbit-http-ack (event-id)
   "Acknowledge EVENT-ID."
-  (aio-await (urbit-http--send-message "ack" `((event-id . ,event-id))))
+  (aio-await (urbit-http--send-message-auto-id "ack" `((event-id . ,event-id))))
   event-id)
 
 (aio-defun urbit-http-poke (app mark data &optional ok-callback err-callback)
   "Pokes APP with MARK DATA. Return id of poke.
 If OK-CALLBACK and ERR-CALLBACK are passed, the correct one will
 be called when a poke response is recieved."
-  (let ((id (aio-await
-             (urbit-http--send-message "poke"
-                                       `((ship . ,urbit-ship)
-                                         (app . ,app)
-                                         (mark . , mark)
-                                         (json . ,data))))))
+  (let ((id (urbit-http--event-id)))
     (urbit-http--let-if-nil ((ok-callback
                               (lambda ()
                                 (urbit-log "Poke %s is ok" id)))
@@ -197,6 +194,13 @@ be called when a poke response is recieved."
       (add-to-list 'urbit-http--poke-handlers
                    `(,id (ok . ,ok-callback)
                          (err . ,err-callback)))
+      (aio-await
+       (urbit-http--send-message "poke"
+                                 id
+                                 `((ship . ,urbit-ship)
+                                   (app . ,app)
+                                   (mark . ,mark)
+                                   (json . ,data))))
       id)))
 
 (aio-defun urbit-http-subscribe (app
@@ -209,11 +213,7 @@ be called when a poke response is recieved."
 EVENT-CALLBACK is called for each event recieved with the event as argument.
 ERR-CALLBACK is called on errors with the error as argument.
 QUIT-CALLBACK is called on quit."
-  (let ((id (aio-await
-             (urbit-http--send-message "subscribe"
-                                       `((ship . ,urbit-ship)
-                                         (app . ,app)
-                                         (path . ,path))))))
+  (let ((id (urbit-http--event-id)))
     (urbit-http--let-if-nil ((event-callback
                               (lambda (data)
                                 (urbit-log "Subscription %s event: %s"
@@ -230,18 +230,24 @@ QUIT-CALLBACK is called on quit."
                    `(,id (event . ,event-callback)
                          (err . ,err-callback)
                          (quit . ,quit-callback)))
+      (aio-await
+       (urbit-http--send-message "subscribe"
+                                 id
+                                 `((ship . ,urbit-ship)
+                                   (app . ,app)
+                                   (path . ,path))))
       id)))
 
 (aio-defun urbit-http-unsubscribe (subscription)
   "Unsubscribe from SUBSCRIPTION."
   (aio-await
-   (urbit-http--send-message "unsubscribe"
-                             `((subscription . ,subscription)))))
+   (urbit-http--send-message-auto-id "unsubscribe"
+                                     `((subscription . ,subscription)))))
 
 (aio-defun urbit-http-delete ()
   "Delete current channel connection."
   (kill-buffer urbit-http--sse-buff)
-  (aio-await (urbit-http--send-message "delete")))
+  (aio-await (urbit-http--send-message-auto-id "delete")))
 
 (aio-defun urbit-http-scry (app path)
   "Scry APP at PATH."
