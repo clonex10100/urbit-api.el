@@ -134,7 +134,7 @@ Return a promise resolving to either '(ok) or '(err)"
 (defun urbit-http--json-request-wrapper (method url &optional object)
   "Make a json request with METHOD to URL with json encodable OBJECT as data.
 Return a promise that resolves to response object.
-Uses `urbit-http--cookie' for authentication."
+Uses `urbit-http--request-cookie-jar' for authentication."
   (let* ((p (aio-make-callback :once t))
          (callback (car p))
          (promise (cdr p))
@@ -143,9 +143,12 @@ Uses `urbit-http--cookie' for authentication."
       :type method
       :headers `(("Content-Type" . "application/json"))
       :data (when object (json-encode object))
-      :parser (lambda () (json-parse-buffer
-                     :object-type 'alist
-                     :null-object nil))
+      :parser (lambda ()
+                (if (string= (buffer-string) "null")
+                    nil
+                  (json-parse-buffer
+                   :object-type 'alist
+                   :null-object nil)))
       :encoding 'utf-8
       :success (cl-function
                 (lambda (&key data &allow-other-keys)
@@ -288,7 +291,7 @@ QUIT-CALLBACK is called on quit."
          (funcall (alist-get 'quit handlers) .json)
          (setq urbit-http--subscription-handlers
                (assq-delete-all .id urbit-http--subscription-handlers)))
-        (--- (urbit-log "Invalid subscription response."))))))
+        (- (urbit-log "Invalid subscription response."))))))
 
 (aio-defun urbit-http--sse-callback (sse)
   "Handle server sent SSEs."
