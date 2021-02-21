@@ -38,7 +38,6 @@
 (defvar urbit-graph-update-subscription nil
   "Urbit-http graph-store /update subscription")
 
-;; TODO: How do users of the library access and watch graphs?
 (defvar urbit-graph-hooks '()
   "Alist of resource symbolds to hook objects for watching graphs.")
 
@@ -54,8 +53,6 @@
 ;; Functinos
 ;;
 (aio-defun urbit-graph-init ()
-  ;; TODO: Probably should cache graphs to disk and load them
-  (setq urbit-graph-graphs nil) 
   (setq urbit-graph-hooks nil)
   (setq urbit-graph-update-subscription
         (aio-await
@@ -151,7 +148,7 @@ CONTENTS is a vector or list of content objects."
                       contents
                     (vconcat contents))))
     `((index . ,(concat "/" (urbit-helper-da-time)))
-      (author . ,(concat "~" urbit-http-ship))
+      (author . ,(urbit-helper-ensig urbit-http-ship))
       (time-sent . ,(urbit-helper-milli-time))
       (signatures . [])
       (contents . ,contents)
@@ -199,8 +196,9 @@ CONTENTS is a vector or list of content objects."
                                     (ship . ,ship))))))
 
 (defun urbit-graph-delete (name)
-  (let ((resource (urbit-graph-make-resource (ensig urbit-http-ship)
-                                             name)))
+  (let ((resource
+         (urbit-graph-make-resource (urbit-helper-ensig urbit-http-ship)
+                                    name)))
     (urbit-graph-view-action "graph-delete"
                              `((delete ,resource)))))
 
