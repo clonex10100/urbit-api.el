@@ -27,6 +27,8 @@
 (require 'request)
 (require 'aio)
 (require 'urbit-http)
+(require 'urbit-log)
+(require 'urbit-helper)
 
 
 
@@ -51,12 +53,6 @@
   "Matches if EXPVAL is an alist with KEY, and let binds val to the value of that key."
   `(and (pred (assoc ,key))
         (app (alist-get ,key) val)))
-
-(defmacro urbit-graph-let-resource (&rest body)
-  "Bind ship to ensigged ship, and create a resource."
-  `(let* ((ship (urbit-ensig ship))
-          (resource (urbit-graph-make-resource ship name)))
-     ,@body))
 
 ;;
 ;; Functinos
@@ -167,9 +163,9 @@ CONTENTS is a vector or list of content objects."
   (let ((contents (if (vectorp contents)
                       contents
                     (vconcat contents))))
-    `((index . ,(concat "/" (urbit-da-time)))
-      (author . ,(concat "~" urbit-ship))
-      (time-sent . ,(urbit-milli-time))
+    `((index . ,(concat "/" (urbit-helper-da-time)))
+      (author . ,(concat "~" urbit-http-ship))
+      (time-sent . ,(urbit-helper-milli-time))
       (signatures . [])
       (contents . ,contents)
       (hash . nil))))
@@ -210,26 +206,26 @@ CONTENTS is a vector or list of content objects."
 ;; View Actions
 ;;
 (defun urbit-graph-join (ship name)
-  (urbit-graph-let-resource
+  (urbit-helper-let-resource
    (urbit-graph-view-action "graph-join"
                             `((join ,resource
                                     (ship . ,ship))))))
 
 (defun urbit-graph-delete (name)
-  (let ((resource (urbit-graph-make-resource (ensig urbit-ship)
+  (let ((resource (urbit-graph-make-resource (ensig urbit-http-ship)
                                              name)))
     (urbit-graph-view-action "graph-delete"
                              `((delete ,resource)))))
 
 (defun urbit-graph-leave (ship name)
-  (urbit-graph-let-resource
+  (urbit-helper-let-resource
    (urbit-graph-view-action "graph-leave"
                             `((leave ,resource)))))
 
 
 ;; TODO: what is to
 (defun urbit-graph-groupify (ship name to-path)
-  (urbit-graph-let-resource
+  (urbit-helper-let-resource
    (urbit-graph-view-action "graph-groupify"
                             `((groupify ,resource (to . to))))))
 
@@ -237,7 +233,7 @@ CONTENTS is a vector or list of content objects."
 ;; Store Actions
 ;;
 (defun urbit-graph-add (ship name graph mark)
-  (urbit-graph-let-resource
+  (urbit-helper-let-resource
    (urbit-graph-store-action
     `((add-graph ,resource (graph . ,graph) (mark . ,mark))))))
 
@@ -246,7 +242,7 @@ CONTENTS is a vector or list of content objects."
 ;;
 ;; TODO: graph.ts has some pending logic in here
 (defun urbit-graph-add-nodes (ship name nodes)
-  (urbit-graph-let-resource
+  (urbit-helper-let-resource
    (urbit-graph-hook-action
     `((add-nodes ,resource (nodes . ,nodes))))
    ;; Landscape manually feeds the add-nodes event into the update
@@ -256,7 +252,7 @@ CONTENTS is a vector or list of content objects."
    ;; (urbit-graph-update-handler
    ;;  `((graph-update
    ;;     (add-nodes
-   ;;      ,(urbit-graph-make-resource (urbit-desig ship)
+   ;;      ,(urbit-graph-make-resource (urbit-helper-desig ship)
    ;;                                  name)
    ;;      (nodes . ,nodes)))))
    ))
@@ -270,7 +266,7 @@ CONTENTS is a vector or list of content objects."
                            `((,index . ,node)))))
 
 (defun urbit-graph-remove-nodes (ship name indices)
-  (urbit-graph-let-resource
+  (urbit-helper-let-resource
    (urbit-graph-hook-action `((remove-nodes ,resource (indices . indices))))))
 
 ;;
@@ -292,25 +288,26 @@ Returns a list of nodes"
   (let ((result (car
                  (aio-await
                   (urbit-http-scry "graph-store" path)))))
+    (urbit-log "result %s" result)
     (urbit-graph-update-handler result)
     ;; TODO: Parse add-nodes here to remove the slashes from keys
     (alist-get 'nodes
-               (cdar ;; Strip off type of graph-update
-                (cdar  ;; Strip off graph-update
+               (cdar  ;; Strip off type of graph-update
+                (cdar ;; Strip off graph-update
                  result)))))
 
 (defun urbit-graph-get (ship name)
   "Get a graph at SHIP NAME."
   (urbit-graph-get-wrapper
    (format "/graph/%s/%s"
-           (urbit-ensig ship)
+           (urbit-helper-ensig ship)
            name)))
 
 (defun urbit-graph-get-newest (ship name count &optional index)
   (urbit-http--let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/newest/%s/%s/%s%s"
-             (urbit-ensig ship)
+             (urbit-helper-ensig ship)
              name
              count
              index))))
@@ -319,7 +316,7 @@ Returns a list of nodes"
   (urbit-http--let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/node-siblings/older/%s/%s/%s%s"
-             (urbit-ensig ship)
+             (urbit-helper-ensig ship)
              name
              count
              (urbit-graph-index-to-ud index)))))
@@ -328,7 +325,7 @@ Returns a list of nodes"
   (urbit-http--let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/node-siblings/younger/%s/%s/%s%s"
-             (urbit-ensig ship)
+             (urbit-helper-ensig ship)
              name
              count
              (urbit-graph-index-to-ud index)))))

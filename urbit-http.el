@@ -27,11 +27,15 @@
 (require 'aio)
 (require 'sse)
 (require 'cl-macs)
+(require 'urbit-log)
 
 
 ;;
 ;; Variables
 ;;
+(defvar urbit-http-ship nil
+  "Urbit ship name.")
+
 (defvar urbit-http--url nil
   "Urbit ship url.")
 
@@ -122,7 +126,7 @@ Return a promise resolving to either '(ok) or '(err)"
                 (lambda (&key data &allow-other-keys)
                   (setq urbit-http--cookie (urbit-http-get-cookie urbit-http--request-cookie-jar))
                   (string-match "-~\\([[:alpha:]-]*\\)=" urbit-http--cookie)
-                  (setq urbit-ship (match-string 1 urbit-http--cookie))
+                  (setq urbit-http-ship (match-string 1 urbit-http--cookie))
                   (funcall callback 'ok)))
       :error (cl-function
               (lambda (&rest args &key error-thrown &allow-oter-keys)
@@ -197,7 +201,7 @@ be called when a poke response is recieved."
       (aio-await
        (urbit-http--send-message "poke"
                                  id
-                                 `((ship . ,urbit-ship)
+                                 `((ship . ,urbit-http-ship)
                                    (app . ,app)
                                    (mark . ,mark)
                                    (json . ,data))))
@@ -233,7 +237,7 @@ QUIT-CALLBACK is called on quit."
       (aio-await
        (urbit-http--send-message "subscribe"
                                  id
-                                 `((ship . ,urbit-ship)
+                                 `((ship . ,urbit-http-ship)
                                    (app . ,app)
                                    (path . ,path))))
       id)))

@@ -27,6 +27,8 @@
 (require 'aio)
 (require 'urbit)
 (require 'urbit-graph)
+(require 'urbit-log)
+(require 'urbit-http)
 
 (defgroup urbit-chat nil
   "Urbit chat client for Emacs."
@@ -126,7 +128,7 @@
   string)
 
 (defun urbit-chat-color-patp (patp)
-  (cond ((string= patp urbit-ship)
+  (cond ((string= patp urbit-http-ship)
          (urbit-chat-add-string-properties patp `(face (:foreground ,urbit-chat-your-patp-color))))
         ((= (length urbit-chat-other-patp-colors) 0) patp)
         (t
@@ -241,7 +243,7 @@
       (mapc (lambda (rep)
               (setq prompt
                     (replace-regexp-in-string (car rep) (cdr rep) prompt)))
-            (list (cons "%n" urbit-ship)
+            (list (cons "%n" urbit-http-ship)
                   (cons "%s" urbit-chat-chat)))
       (goto-char urbit-chat-prompt-end-marker)
       (insert-before-markers prompt)

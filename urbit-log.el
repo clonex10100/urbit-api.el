@@ -1,4 +1,4 @@
-;;; urbit.el --- An api for interacting with an urbit ship -*- lexical-binding: t -*-
+;;; urbit-log.el --- Logging for urbit-api.el -*- lexical-binding: t -*-
 
 ;; Author: Noah Evans <noah@nevans.me>
 
@@ -20,20 +20,20 @@
 
 ;;; Commentary:
 
-;; An api for interacting with an urbit ship.
+;; commentary
 
 ;;; Code:
-(require 'urbit-http)
-(require 'urbit-graph)
 
-(aio-defun urbit-launch (url code)
-  "All in one intialization function to connect to ship at URL with CODE."
-  (urbit-http-init url code)
-  (aio-await (urbit-http-connect))
-  (aio-await (urbit-http-poke "hood" "helm-hi" "Opening elisp airlock."))
-  (urbit-http-start-sse)
-  (aio-await (urbit-graph-init)))
+(defconst urbit-log-buffer "*urbit-log*"
+  "Buffer for urbit log messages.")
 
-(provide 'urbit)
+(defun urbit-log (&rest msg-args)
+  "Log to `urbit-log-buffer'.  MSG-ARGS are passed to `format'."
+  (with-current-buffer (get-buffer-create urbit-log-buffer)
+    (goto-char (point-max))
+    (insert (apply #'format msg-args))
+    (insert "\n\n")))
 
-;;; urbit.el ends here
+(provide 'urbit-log)
+
+;;; urbit-log.el ends here
