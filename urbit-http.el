@@ -28,6 +28,7 @@
 (require 'sse)
 (require 'cl-macs)
 (require 'urbit-log)
+(require 'urbit-helper)
 
 
 ;;
