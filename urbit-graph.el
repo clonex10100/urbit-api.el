@@ -82,7 +82,7 @@
   "Fix indexes of add-nodes node list by stripping the slashes and converting to numbers."
   (dolist (node nodes)
     (setf (car node)
-          (string-to-number (substring (symbol-name (car node)) 1)))
+          (car (last (urbit-graph-index-symbol-to-list (car node)))))
     (let ((children (alist-get 'children (cdr node))))
       (setf children (urbit-graph-fix-indexes children)))))
 
@@ -98,13 +98,6 @@
 ;;
 ;; Event handling
 ;;
-;; Hooks should be resource->graph-handler-object
-;; graph-handler should look like this
-;; Graph handlers need not handle add-graph or keys as they're returned by their functions
-;; How should remove-graph work?
-;; add-nodes -> lambda
-;; remove-nodes -> lambda
-;; Remove nodes is a list of indices
 (defun urbit-graph-update-handler (event)
   "Handle graph-update EVENT."
   (urbit-log "Got graph event %s" event)
@@ -117,18 +110,30 @@
             (urbit-log "Ignoring graph-update %s" update-type)
           (let-alist update
             (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
-                   (nodes .nodes)
-                   (hook (alist-get resource-symbol urbit-graph-hooks)))
-              (urbit-graph-fix-indexes nodes)
-              (urbit-log "Graph event nodes %s" nodes)
-              (funcall hook nodes))))))))
+                   (hooks (alist-get resource-symbol urbit-graph-hooks)))
+              (pcase update-type
+                ('add-nodes
+                 (let ((nodes (alist-get 'nodes update))
+                       (callback (alist-get 'add-nodes hooks)))
+                   (urbit-graph-fix-indexes nodes)
+                   (funcall callback nodes)))
+                ('remove-nodes
+                 (let ((indices (alist-get 'indices update))
+                       (callback (alist-get 'remove-nodes hooks)))
+                   (funcall callback
+                            ;; Convert indices vector to list
+                            (append indices nil))))))))))))
 
-(defun urbit-graph-watch (ship name callback)
-  "Everytime the graph at SHIP NAME is updated, your callback will be called with the new nodes."
+(defun urbit-graph-watch (ship name add-callback &optional remove-callback)
+  "Watch graph at SHIP NAME. When an add-nodes event is recieved, ADD-CALLBACK will be called with a list of nodes.
+When a remove-nodes event is recieved, REMOVE-CALLBACK will be called with a list of indexes."
   (let ((resource (urbit-graph-resource-to-symbol `((ship . ,ship)
                                                     (name . ,name)))))
-    (add-to-list 'urbit-graph-hooks
-                 (cons resource callback))
+    (urbit-helper-let-if-nil ((remove-callback (lambda (indexes)
+                                                 (urbit-log "Got remove-nodes for indexes: %s" indexes))))
+      (add-to-list 'urbit-graph-hooks
+                   `(,resource (add-nodes . ,add-callback)
+                               (remove-nodes . ,remove-callback))))
 
     resource))
 
@@ -281,7 +286,7 @@ Returns a list of nodes"
           (urbit-http-scry "graph-store" "/keys"))))
     ;; Return a list of resource symbols
     (mapcar #'urbit-graph-resource-to-symbol
-     (cdar (cdaar keys)))))
+            (cdar (cdaar keys)))))
 
 (defun urbit-graph-get (ship name)
   "Get a graph at SHIP NAME."
