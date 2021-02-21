@@ -38,10 +38,6 @@
 (defvar urbit-graph-update-subscription nil
   "Urbit-http graph-store /update subscription")
 
-;; TODO: Cache this on disk
-(defvar urbit-graph-graphs '()
-  "Alist of resource symbolds to graphs.")
-
 ;; TODO: How do users of the library access and watch graphs?
 (defvar urbit-graph-hooks '()
   "Alist of resource symbolds to hook objects for watching graphs.")
@@ -76,70 +72,56 @@
   (intern (concat (alist-get 'ship resource)
                   "/"
                   (alist-get 'name resource))))
+
 (defun urbit-graph-symbol-to-resource (symbol)
   (let ((split (split-string (symbol-name symbol) "/")))
     (cons (car split)
           (cadr split))))
+
+(defun urbit-graph-fix-indexes (nodes)
+  "Fix indexes of add-nodes node list by stripping the slashes and converting to numbers."
+  (dolist (node nodes)
+    (setf (car node)
+          (string-to-number (substring (symbol-name (car node)) 1)))
+    (let ((children (alist-get 'children (cdr node))))
+      (setf children (fix-node-indexes children)))))
+
+(defun urbit-graph-index-to-ud (index)
+  "Convert all nums in INDEX to UDs."
+  (string-join
+   (mapcar (lambda (x)
+             (urbit-helper-num-to-ud
+              (string-to-number x)))
+           (split-string index
+                         "/"))
+   "/"))
 ;;
 ;; Event handling
 ;;
-(defun urbit-graph-add-nodes-handler (data)
-  "Handle add-nodes graph-update action."
-  (let-alist data
-    (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
-           (graph (alist-get resource-symbol urbit-graph-graphs))
-           (hook (alist-get resource-symbol urbit-graph-hooks)))
-      ;; (unless graph
-      ;;   (add-to-list 'urbit-graph-graphs
-      ;;                (cons resource-symbol nil))
-      ;;   (setq graph (assoc resource-symbol urbit-graph-graphs)))
-      ;; (defun add-node (graph index post)
-      ;;   (if (= (length index) 1) (nconc graph (list (cons (car index) post)))
-      ;;     (let ((parent (alist-get (car index) graph)))
-      ;;       (if (not parent) (urbit-log "Parent not found for: %s" index)
-      ;;         (add-node (assoc 'children parent)
-      ;;                   (cdr index)
-      ;;                   post)))))
-      ;; (dolist (node .nodes)
-      ;;   (let ((index (urbit-graph-index-symbol-to-list (car node)))
-      ;;         (post (cdr node)))
-      ;;     (add-node graph index post)))
-      (when hook (funcall hook .nodes)))))
-
-(defun urbit-graph-add-graph-handler (data)
-  (let-alist data
-    (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
-          (hook (alist-get resource-symbol urbit-graph-hooks)))
-      (when (assoc resource-symbol urbit-graph-graphs)
-        (urbit-log "Add Graph: Graph %s already added" resource-symbol))
-      ;; Convert all of the indexes to numbers
-      (defun clean-graph (graph)
-        (dolist (node graph)
-          (setf (car node)
-                (string-to-number (substring (symbol-name (car node)))))
-          (let ((children (alist-get 'children (cdr node))))
-            (setf children (clean-graph children)))))
-      (clean-graph .graph)
-      (add-to-list 'urbit-graph-graphs
-                   (cons resource-symbol .graph))
-      (when hook (funcall hook .nodes)))))
-
-;; Disabling local graph storage for now, because it seems useless without a reactive api. Just call hook functions
+;; Hooks should be resource->graph-handler-object
+;; graph-handler should look like this
+;; Graph handlers need not handle add-graph or keys as they're returned by their functions
+;; How should remove-graph work?
+;; add-nodes -> lambda
+;; remove-nodes -> lambda
+;; Remove nodes is a list of indices
 (defun urbit-graph-update-handler (event)
   "Handle graph-update EVENT."
+  (urbit-log "Got graph event %s" event)
   (let ((graph-update (alist-get 'graph-update event)))
     (if (not graph-update) (urbit-log "Unknown graph event: %s" event)
-      (pcase graph-update
-        ((urbit-graph-match-key 'add-nodes)
-         (urbit-graph-add-nodes-handler val)
-         )
-        ((urbit-graph-match-key 'add-graph)
-         ;; (urbit-graph-add-graph-handler val)
-         (urbit-log "Got graph add")
-         )
-        ((urbit-graph-match-key 'remove-node) (urbit-log "Remove node not implemented"))
-        ((urbit-graph-match-key 'remove-graph) (urbit-log "Remove graph not implemented"))
-        (- (urbit-log "Unkown graph-update: %s" graph-update))))))
+      (let* ((update-type (caar graph-update))
+             (update (cdar graph-update)))
+        (if (not (or (eq update-type 'add-nodes)
+                     (eq update-type 'remove-nodes)))
+            (urbit-log "Ignoring graph-update %s" update-type)
+          (let-alist update
+            (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
+                   (nodes .nodes)
+                   (hook (alist-get resource-symbol urbit-graph-hooks)))
+              (urbit-graph-fix-indexes nodes)
+              (urbit-log "Graph event nodes %s" nodes)
+              (funcall hook nodes))))))))
 
 (defun urbit-graph-watch (ship name callback)
   "Everytime the graph at SHIP NAME is updated, your callback will be called with the new nodes."
@@ -272,29 +254,34 @@ CONTENTS is a vector or list of content objects."
 ;;
 ;; Fetching
 ;;
-(aio-defun urbit-graph-get-keys ()
-  (let ((keys
-         (aio-await
-          (urbit-http-scry "graph-store" "/keys"))))
-    ;; TODO: Our state pipeline doesn't know what to do with keys
-    (urbit-graph-update-handler (car keys))
-    ;; Return a list of resource symbols
-    (mapcar #'urbit-graph-resource-to-symbol
-     (cdar (cdaar keys)))))
-
 (aio-defun urbit-graph-get-wrapper (path)
   "Scries graph-store at PATH, and feeds the result to `urbit-graph-update-handler'.
 Returns a list of nodes"
   (let ((result (car
                  (aio-await
                   (urbit-http-scry "graph-store" path)))))
-    (urbit-log "result %s" result)
-    (urbit-graph-update-handler result)
-    ;; TODO: Parse add-nodes here to remove the slashes from keys
-    (alist-get 'nodes
-               (cdar  ;; Strip off type of graph-update
-                (cdar ;; Strip off graph-update
-                 result)))))
+    (let* ((graph-update (cdar result))
+           (update-type (caar graph-update))
+           (update (cdar graph-update)))
+      (urbit-log "update type %s" update-type)
+      (let ((nodes 
+             (pcase update-type
+               ('add-nodes
+                (alist-get 'nodes update))
+               ('add-graph
+                (alist-get 'graph update))
+               (- (urbit-log "Get wrapper unkownn update type %s" update-type)
+                  '()))))
+        (fix-node-indexes nodes)
+        nodes))))
+
+(aio-defun urbit-graph-get-keys ()
+  (let ((keys
+         (aio-await
+          (urbit-http-scry "graph-store" "/keys"))))
+    ;; Return a list of resource symbols
+    (mapcar #'urbit-graph-resource-to-symbol
+     (cdar (cdaar keys)))))
 
 (defun urbit-graph-get (ship name)
   "Get a graph at SHIP NAME."
@@ -340,7 +327,7 @@ Returns a list of nodes"
 
 (defun urbit-graph-get-node (ship name index)
   (urbit-graph-get-wrapper
-   (format "/%s/%s%s"
+   (format "/node/%s/%s%s"
            ship
            name
            (urbit-graph-index-to-ud index))))

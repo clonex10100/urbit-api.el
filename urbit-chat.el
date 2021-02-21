@@ -273,8 +273,8 @@
            ;; HACK: clients should probably not need to parse and sort data
            ;; recieved from urbit-graph
            (lambda (a b)
-             (< (car (urbit-graph-index-symbol-to-list (car a)))
-                (car (urbit-graph-index-symbol-to-list (car b))))))
+             (< (car a)
+                (car b))))
      buffer)
     (let ((resource
            (urbit-graph-watch ship

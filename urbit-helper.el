@@ -62,6 +62,42 @@
           (resource (urbit-graph-make-resource ship name)))
      ,@body))
 
+(defun urbit-helper-chunk (list size)
+  (let* ((res
+          (seq-reduce (lambda (memo x)
+                        (let ((c (car memo))
+                              (l (cdr memo)))
+                          (push x c)
+                          (when (= (length c)
+                                   size)
+                            (push (nreverse c)
+                                  l)
+                            (setf c nil))
+                          (cons c l)))
+                      list
+                      '(nil . nil)))
+         (leftover (car res))
+         (list (cdr res)))
+    (when leftover
+      (push (nreverse
+             leftover)
+            list))
+    (nreverse list)))
+
+(defun urbit-helper-num-to-ud (index)
+  (string-join
+   (mapcar #'string-join
+           (nreverse
+            (urbit-helper-chunk
+             (nreverse
+              (split-string
+               (number-to-string
+                index)
+               ""
+               t))
+             3)))
+   "."))
+
 (provide 'urbit-helper)
 
 ;;; urbit-helper.el ends here
