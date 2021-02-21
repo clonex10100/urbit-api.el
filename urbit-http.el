@@ -23,7 +23,6 @@
 
 ;;; Code:
 
-(require 'url)
 (require 'request)
 (require 'aio)
 (require 'sse)
@@ -98,52 +97,57 @@ Useful for assigning defaults to optional args."
   (setq urbit-http--subscription-handlers nil)
   (setq urbit-http--channel-url (concat urbit-http--url "/~/channel/" urbit-http--uid)))
 
-(aio-defun urbit-http-connect ()
+(defun urbit-http-get-cookie (cookie-jar)
+  "Get the urbauth cookie from curl COOKIE-JAR."
+  (with-temp-buffer
+    (insert-file-contents cookie-jar)
+    (search-forward "urbauth")
+    (backward-word)
+    (let ((cookie (buffer-substring (point) (line-end-position))))
+      (replace-regexp-in-string "\t" "=" cookie))))
+
+(defun urbit-http-connect ()
   "Connect to ship described by `urbit-http--url' and `urbit--code'.
-Return a promise resolving to ship name."
-  (let ((url-request-method "POST")
-        (url-request-data (concat "password=" urbit-http--code))
-        (login-url (concat urbit-http--url "/~/login")))
-    (let* ((p (aio-await (aio-url-retrieve login-url)))
-           (status (car p))
-           (buff (cdr p)))
-      (with-current-buffer buff
-        ;; TODO: check for error
-        (goto-char (point-min))
-        (search-forward "set-cookie: ")
-        (setq urbit-http--cookie (buffer-substring (point) (line-end-position)))
-        (string-match "-~\\([[:alpha:]-]*\\)=" urbit-http--cookie)
-        (setq urbit-ship (match-string 1 urbit-http--cookie))
-        urbit-ship))))
+Return a promise resolving to either '(ok) or '(err)"
+  (setq urbit-http--request-cookie-jar (make-temp-file "urbit-request-cookie-jar-"))
+  (let* ((p (aio-make-callback :once t))
+         (callback (car p))
+         (promise (cdr p))
+         (request--curl-cookie-jar urbit-http--request-cookie-jar))
+    (request (concat urbit-http--url "/~/login")
+      :type "POST"
+      :data (concat "password=" urbit-http--code)
+      :encoding 'utf-8
+      :success (cl-function
+                (lambda (&key data &allow-other-keys)
+                  (setq urbit-http--cookie (urbit-http-get-cookie urbit-http--request-cookie-jar))
+                  (string-match "-~\\([[:alpha:]-]*\\)=" urbit-http--cookie)
+                  (setq urbit-ship (match-string 1 urbit-http--cookie))
+                  (funcall callback 'ok)))
+      :error (cl-function
+              (lambda (&rest args &key error-thrown &allow-oter-keys)
+                (urbit-log "Http Connect Error: %s" error-thrown)
+                (funcall callback 'error))))
+    promise))
 
 (defun urbit-http-start-sse ()
   "Start recieving SSEs for current urbit connection."
   ;; Make sure we don't have more than one sse buff
   (when (buffer-live-p urbit-http--sse-buff) (kill-buffer urbit-http--sse-buff))
   (setq urbit-http--sse-buff
-        (sse-listener urbit-http--channel-url #'urbit-http--sse-callback)))
+        (sse-listener urbit-http--channel-url #'urbit-http--sse-callback urbit-http--cookie)))
 
 (defun urbit-http--json-request-wrapper (method url &optional object)
   "Make a json request with METHOD to URL with json encodable OBJECT as data.
 Return a promise that resolves to response object.
 Uses `urbit-http--cookie' for authentication."
-  ;; The only working way I've found to pass a cookie to `request' is
-  ;; to set a cookie header on the first request, let request put it
-  ;; in it's cookie jar, then stop passing the cookie header.
   (let* ((p (aio-make-callback :once t))
          (callback (car p))
          (promise (cdr p))
-         (first-run (not urbit-http--request-cookie-jar))
-         (request--curl-cookie-jar
-          (progn
-            (when first-run
-              (setq urbit-http--request-cookie-jar
-                    (make-temp-file "urbit-http-request-cookie-jar-")))
-            urbit-http--request-cookie-jar)))
+         (request--curl-cookie-jar urbit-http--request-cookie-jar))
     (request url
       :type method
-      :headers `(("Content-Type" . "application/json")
-                 ,@(when first-run `(("Cookie" . ,urbit-http--cookie))))
+      :headers `(("Content-Type" . "application/json"))
       :data (when object (json-encode object))
       :parser (lambda () (json-parse-buffer
                      :object-type 'alist
