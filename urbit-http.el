@@ -262,7 +262,8 @@ QUIT-CALLBACK is called on quit."
                                              urbit-http--url
                                              input-mark
                                              thread-name
-                                             output-mark))))
+                                             output-mark)
+                                     data)))
 
 (defun urbit-http--handle-poke-response (data)
   "Handle poke response DATA."
