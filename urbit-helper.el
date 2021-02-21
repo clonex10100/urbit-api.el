@@ -98,6 +98,18 @@
              3)))
    "."))
 
+(defmacro urbit-helper-let-if-nil (spec &rest body)
+  "Bind variables according to SPEC only if they are nil, then evaluate BODY.
+Useful for assigning defaults to optional args."
+  (declare (indent 1))
+  `(let ,(mapcar (lambda (s)
+                   (let ((sym (car s))
+                         (else (cadr s)))
+                     `(,sym (or ,sym ,else))))
+                 spec)
+     ,@body))
+
+
 (provide 'urbit-helper)
 
 ;;; urbit-helper.el ends here

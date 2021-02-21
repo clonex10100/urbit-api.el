@@ -69,17 +69,6 @@ Should be set to the current unix time plus a 6 digit random hex string.")
 
 
 
-(defmacro urbit-http--let-if-nil (spec &rest body)
-  "Bind variables according to SPEC only if they are nil, then evaluate BODY.
-Useful for assigning defaults to optional args."
-  (declare (indent 1))
-  `(let ,(mapcar (lambda (s)
-                   (let ((sym (car s))
-                         (else (cadr s)))
-                     `(,sym (or ,sym ,else))))
-                 spec)
-     ,@body))
-
 (defun urbit-http--random-hex-string (n)
   "Generate a random N digit hexadecimal string."
   (format "%x" (random (expt 16 n))))
@@ -189,7 +178,7 @@ Uses `urbit-http--cookie' for authentication."
 If OK-CALLBACK and ERR-CALLBACK are passed, the correct one will
 be called when a poke response is recieved."
   (let ((id (urbit-http--event-id)))
-    (urbit-http--let-if-nil ((ok-callback
+    (urbit-helper-let-if-nil ((ok-callback
                               (lambda ()
                                 (urbit-log "Poke %s is ok" id)))
                              (err-callback
@@ -218,7 +207,7 @@ EVENT-CALLBACK is called for each event recieved with the event as argument.
 ERR-CALLBACK is called on errors with the error as argument.
 QUIT-CALLBACK is called on quit."
   (let ((id (urbit-http--event-id)))
-    (urbit-http--let-if-nil ((event-callback
+    (urbit-helper-let-if-nil ((event-callback
                               (lambda (data)
                                 (urbit-log "Subscription %s event: %s"
                                            id data)))

@@ -291,7 +291,7 @@ Returns a list of nodes"
            name)))
 
 (defun urbit-graph-get-newest (ship name count &optional index)
-  (urbit-http--let-if-nil ((index ""))
+  (urbit-helper-let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/newest/%s/%s/%s%s"
              (urbit-helper-ensig ship)
@@ -300,7 +300,7 @@ Returns a list of nodes"
              index))))
 
 (defun urbit-graph-get-older-siblings (ship name count &optional index)
-  (urbit-http--let-if-nil ((index ""))
+  (urbit-helper-let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/node-siblings/older/%s/%s/%s%s"
              (urbit-helper-ensig ship)
@@ -309,7 +309,7 @@ Returns a list of nodes"
              (urbit-graph-index-to-ud index)))))
 
 (defun urbit-graph-get-younger-siblings (ship name count &optional index)
-  (urbit-http--let-if-nil ((index ""))
+  (urbit-helper-let-if-nil ((index ""))
     (urbit-graph-get-wrapper
      (format "/node-siblings/younger/%s/%s/%s%s"
              (urbit-helper-ensig ship)
