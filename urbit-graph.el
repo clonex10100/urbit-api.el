@@ -84,7 +84,7 @@
     (setf (car node)
           (string-to-number (substring (symbol-name (car node)) 1)))
     (let ((children (alist-get 'children (cdr node))))
-      (setf children (fix-node-indexes children)))))
+      (setf children (urbit-graph-fix-indexes children)))))
 
 (defun urbit-graph-index-to-ud (index)
   "Convert all nums in INDEX to UDs."
@@ -270,9 +270,9 @@ Returns a list of nodes"
                 (alist-get 'nodes update))
                ('add-graph
                 (alist-get 'graph update))
-               (- (urbit-log "Get wrapper unkownn update type %s" update-type)
+               (- (urbit-log "Get wrapper unkown update type %s" update-type)
                   '()))))
-        (fix-node-indexes nodes)
+        (urbit-graph-fix-indexes nodes)
         nodes))))
 
 (aio-defun urbit-graph-get-keys ()
