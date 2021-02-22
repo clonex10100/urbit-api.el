@@ -97,7 +97,6 @@
 ;;
 (defun urbit-graph-update-handler (event)
   "Handle graph-update EVENT."
-  (urbit-log "Got graph event %s" event)
   (let ((graph-update (alist-get 'graph-update event)))
     (if (not graph-update) (urbit-log "Unknown graph event: %s" event)
       (let* ((update-type (caar graph-update))
@@ -247,7 +246,6 @@ CONTENTS is a vector or list of content objects."
                          (let ((index (intern
                                        (alist-get 'index
                                                   (alist-get 'post node)))))
-                           (urbit-log "Adding node index %s" index)
                            `((,index . ,node)))))
 
 (defun urbit-graph-remove-nodes (ship name indices)
@@ -266,7 +264,6 @@ Returns a list of nodes"
     (let* ((graph-update (cdar result))
            (update-type (caar graph-update))
            (update (cdar graph-update)))
-      (urbit-log "update type %s" update-type)
       (let ((nodes 
              (pcase update-type
                ('add-nodes

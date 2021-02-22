@@ -114,7 +114,6 @@
                contents))
         ((pred urbit-chat-patp-p)
          (funcall push-text)
-         (urbit-log "word: %s" word)
          (push `((mention . ,word))
                contents))
         (- (push word text))))
@@ -147,7 +146,6 @@
                         'keymap (let ((map (make-sparse-keymap)))
                                   (let ((a (lambda ()
                                              (interactive)
-                                             (urbit-log "boo")
                                              (browse-url url))))
                                     (define-key map [mouse-2] a)
                                     (define-key map (kbd "<return>") a))
@@ -160,7 +158,6 @@
   url)
 
 (defun urbit-chat-format-contents (contents)
-  (urbit-log "content: %s" contents)
   (replace-regexp-in-string
    "^ \\| $" ""
    (string-join
