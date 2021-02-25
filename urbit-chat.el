@@ -275,12 +275,12 @@
             (urbit-graph-get-newest ship
                                     name
                                     urbit-chat-initial-messages))
-           ;; HACK: clients should probably not need to parse and sort data
-           ;; recieved from urbit-graph
            (lambda (a b)
              (< (car a)
                 (car b))))
      buffer)
+    (goto-char (point-max))
+    (recenter -1)
     (let ((resource
            (urbit-graph-watch ship
                               name
