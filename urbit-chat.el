@@ -100,6 +100,7 @@
 (defun urbit-chat-tokenize-message (message)
   (let* ((contents ())
          (text '())
+         (not-backticks t)
          (push-text
           (lambda ()
             (when text
@@ -108,11 +109,18 @@
               (setq text '())))))
     (dolist (word (split-string message "\s"))
       (pcase word
-        ((pred urbit-chat-url-p)
+        ((pred (string-prefix-p "`"))
+         (setq not-backticks nil)
+         (push word text))
+        ((pred (string-suffix-p "`") )
+         (setq not-backticks t)
+         (push word text))
+        (
+         (pred (lambda (s) (and (urbit-chat-url-p s) not-backticks)))
          (funcall push-text)
          (push `((url . ,word))
                contents))
-        ((pred urbit-chat-patp-p)
+        ((pred (lambda (s) (and (urbit-chat-patp-p s) not-backticks)))
          (funcall push-text)
          (push `((mention . ,word))
                contents))
