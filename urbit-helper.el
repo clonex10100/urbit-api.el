@@ -98,6 +98,18 @@
              3)))
    "."))
 
+(defun urbit-helper-ux-to-hex (ux)
+  (let* ((ux
+          (if (and (> (length ux) 2)
+                   (string= (substring ux 0 2)
+                            "0x"))
+              (substring ux 2)
+            ux))
+         (ux (replace-regexp-in-string "\\." "" ux)))
+    (concat (make-string (max 0 (- 6 (length ux)))
+                         ?0)
+            ux)))
+
 (defmacro urbit-helper-let-if-nil (spec &rest body)
   "Bind variables according to SPEC only if they are nil, then evaluate BODY.
 Useful for assigning defaults to optional args."
@@ -108,6 +120,35 @@ Useful for assigning defaults to optional args."
                      `(,sym (or ,sym ,else))))
                  spec)
      ,@body))
+
+(pcase-defmacro urbit-helper-match-key (key)
+  "Matches if EXPVAL is an alist with KEY, and let binds val to the value of that key."
+  `(and (pred (assoc ,key))
+        (app (alist-get ,key) val)))
+
+(defun urbit-helper-assign (a b)
+  "Like JS' Object.assign for alists."
+  (seq-reduce
+   (lambda (res el)
+     (if (and (listp el)
+              (not (assoc (car el) res)))
+         (cons el res)
+       res))
+   (append b a)
+   ()))
+
+(defun urbit-helper-filter-map (func seq)
+  (seq-filter
+   #'identity
+   (mapcar func
+           seq)))
+
+(defun urbit-helper-alist-get-chain (&rest args)
+  "(urbit-helper-alist-get-chain key2 key1 alist) is equivalent to (alist-get key2 (alist-get key1 alist))."
+  (if (= (length args) 1) (car args)
+    (alist-get (car args)
+               (apply #'urbit-helper-alist-get-chain (cdr args)))))
+
 
 
 (provide 'urbit-helper)

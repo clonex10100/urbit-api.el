@@ -25,6 +25,7 @@
 ;;; Code:
 (require 'urbit-http)
 (require 'urbit-graph)
+(require 'urbit-metadata)
 
 (aio-defun urbit-launch (url code)
   "All in one intialization function to connect to ship at URL with CODE."
@@ -32,7 +33,8 @@
   (aio-await (urbit-http-connect))
   (aio-await (urbit-http-poke "hood" "helm-hi" "Opening elisp airlock."))
   (urbit-http-start-sse)
-  (aio-await (urbit-graph-init)))
+  (aio-await (urbit-graph-init))
+  (aio-await (urbit-metadata-init)))
 
 (provide 'urbit)
 
