@@ -29,6 +29,7 @@
 (require 'urbit-graph)
 (require 'urbit-log)
 (require 'urbit-http)
+(require 'urbit-metadata)
 
 (defgroup urbit-chat nil
   "Urbit chat client for Emacs."
@@ -300,8 +301,8 @@
 ;; TODO: find a way to show group names with keys, only show chat keys
 (defun urbit-chat-start ()
   (interactive)
-  (let ((read (completing-read "Choose a chat: "
-                               (aio-wait-for (urbit-graph-get-keys)))))
+  (let ((read
+         (completing-read "Choose a chat: " (urbit-metadata-get-app-graphs "chat" t))))
     (let* ((resource (urbit-graph-symbol-to-resource (intern read)))
            (ship (car resource))
            (name (cdr resource))
