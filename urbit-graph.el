@@ -39,26 +39,24 @@
   "Urbit-http graph-store /update subscription")
 
 (defvar urbit-graph-hooks '()
-  "Alist of resource symbolds to hook objects for watching graphs.")
+  "Alist of resource symbols to hook objects for watching graphs.")
 
-;;
-;; Macros
-;;
-(pcase-defmacro urbit-graph-match-key (key)
-  "Matches if EXPVAL is an alist with KEY, and let binds val to the value of that key."
-  `(and (pred (assoc ,key))
-        (app (alist-get ,key) val)))
+(defvar urbit-graph-keys ()
+  "List of graph resource symbols.")
 
 ;;
 ;; Functinos
 ;;
 (aio-defun urbit-graph-init ()
   (setq urbit-graph-hooks nil)
-  (setq urbit-graph-update-subscription
-        (aio-await
+  (let ((subscription-promise
          (urbit-http-subscribe "graph-store"
                                "/updates"
-                               #'urbit-graph-update-handler))))
+                               #'urbit-graph-update-handler))
+        (keys-promise (urbit-graph-get-keys)))
+    (setq urbit-graph-update-subscription
+          (aio-await subscription-promise))
+    (setq urbit-graph-keys (aio-await keys-promise))))
 
 (defun urbit-graph-index-symbol-to-list (symbol)
   (mapcar #'string-to-number
@@ -101,24 +99,29 @@
     (if (not graph-update) (urbit-log "Unknown graph event: %s" event)
       (let* ((update-type (caar graph-update))
              (update (cdar graph-update)))
-        (if (not (or (eq update-type 'add-nodes)
-                     (eq update-type 'remove-nodes)))
-            (urbit-log "Ignoring graph-update %s" update-type)
-          (let-alist update
-            (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
-                   (hooks (alist-get resource-symbol urbit-graph-hooks)))
-              (pcase update-type
-                ('add-nodes
-                 (let ((nodes (alist-get 'nodes update))
-                       (callback (alist-get 'add-nodes hooks)))
-                   (urbit-graph-fix-indexes nodes)
-                   (funcall callback nodes)))
-                ('remove-nodes
-                 (let ((indices (alist-get 'indices update))
-                       (callback (alist-get 'remove-nodes hooks)))
-                   (funcall callback
-                            ;; Convert indices vector to list
-                            (append indices nil))))))))))))
+          (pcase update-type
+            ((or 'add-nodes 'remove-nodes)
+             (urbit-graph-update-nodes-handler update-type update))
+            ('add-graph
+             (push (urbit-graph-resource-to-symbol (alist-get 'resource update))
+                   urbit-graph-keys))
+            (- (urbit-log "Ignoring graph-update %s" update-type)))))))
+
+(defun urbit-graph-update-nodes-handler (update-type update)
+  (let-alist update
+    (let* ((resource-symbol (urbit-graph-resource-to-symbol .resource))
+           (hook (urbit-helper-alist-get-chain update-type
+                                               resource-symbol
+                                               urbit-graph-hooks)))
+      (funcall
+       hook
+       (pcase update-type
+         ('add-nodes
+          (let ((nodes (alist-get 'nodes update)))
+            (urbit-graph-fix-indexes nodes)
+            nodes))
+         ('remove-nodes
+          (append (alist-get 'indices update) nil)))))))
 
 (defun urbit-graph-watch (ship name add-callback &optional remove-callback)
   "Watch graph at SHIP NAME. When an add-nodes event is recieved, ADD-CALLBACK will be called with a list of nodes.
