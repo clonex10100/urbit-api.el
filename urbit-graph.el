@@ -105,6 +105,11 @@
             ('add-graph
              (push (urbit-graph-resource-to-symbol (alist-get 'resource update))
                    urbit-graph-keys))
+            ('remove-graph
+             (setq urbit-graph-keys
+                   (remq (urbit-graph-resource-to-symbol
+                          update)
+                         urbit-graph-keys)))
             (- (urbit-log "Ignoring graph-update %s" update-type)))))))
 
 (defun urbit-graph-update-nodes-handler (update-type update)
