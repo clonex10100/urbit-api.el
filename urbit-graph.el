@@ -85,8 +85,9 @@
   "Convert all nums in INDEX to UDs."
   (string-join
    (mapcar (lambda (x)
-             (urbit-helper-num-to-ud
-              (string-to-number x)))
+             (if (= (length x) 0) x
+               (urbit-helper-dec-to-ud
+                x)))
            (split-string index
                          "/"))
    "/"))
@@ -336,7 +337,7 @@ Returns a list of nodes"
 (defun urbit-graph-get-node (ship name index)
   (urbit-graph-get-wrapper
    (format "/node/%s/%s%s"
-           ship
+           (urbit-helper-ensig ship)
            name
            (urbit-graph-index-to-ud index))))
 

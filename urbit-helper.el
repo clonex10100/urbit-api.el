@@ -84,19 +84,25 @@
             list))
     (nreverse list)))
 
-(defun urbit-helper-num-to-ud (index)
-  (string-join
-   (mapcar #'string-join
-           (nreverse
-            (urbit-helper-chunk
-             (nreverse
-              (split-string
-               (number-to-string
-                index)
-               ""
-               t))
-             3)))
-   "."))
+(defun urbit-helper-dec-to-ud (index)
+  (let ((s
+         (string-join
+          (mapcar (lambda (segment)
+                    (string-join (nreverse segment)))
+                  (nreverse
+                   (urbit-helper-chunk
+                    (nreverse
+                     (split-string
+                      index
+                      ""
+                      t))
+                    3)))
+          "."))
+        (i 0))
+    (while (or (eq (elt s i) ?0)
+               (eq (elt s i) ?.))
+      (setq i (1+ i)))
+    (substring s i)))
 
 (defun urbit-helper-ux-to-hex (ux)
   (let* ((ux
