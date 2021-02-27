@@ -131,7 +131,8 @@
 
 (defun urbit-graph-watch (ship name add-callback &optional remove-callback)
   "Watch graph at SHIP NAME. When an add-nodes event is recieved, ADD-CALLBACK will be called with a list of nodes.
-When a remove-nodes event is recieved, REMOVE-CALLBACK will be called with a list of indexes."
+When a remove-nodes event is recieved, REMOVE-CALLBACK will be called with a list of indexes.
+Return a resource symbol you can use with `urbit-graph-stop-watch'."
   (let ((resource (urbit-graph-resource-to-symbol `((ship . ,ship)
                                                     (name . ,name)))))
     (urbit-helper-let-if-nil ((remove-callback (lambda (indexes)
@@ -143,6 +144,7 @@ When a remove-nodes event is recieved, REMOVE-CALLBACK will be called with a lis
     resource))
 
 (defun urbit-graph-stop-watch (resource)
+  "Stop watching RESOURCE symbol."
   (setq urbit-graph-hooks
         (assq-delete-all resource urbit-graph-hooks)))
 
@@ -217,12 +219,14 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
 ;; View Actions
 ;;
 (defun urbit-graph-join (ship name)
+  "Join graph at SHIP NAME."
   (urbit-helper-let-resource
    (urbit-graph-view-action "graph-join"
                             `((join ,resource
                                     (ship . ,ship))))))
 
 (defun urbit-graph-delete (name)
+  "Delete graph at NAME from your ship."
   (let ((resource
          (urbit-graph-make-resource (urbit-helper-ensig urbit-http-ship)
                                     name)))
@@ -230,6 +234,7 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
                              `((delete ,resource)))))
 
 (defun urbit-graph-leave (ship name)
+  "Leave graph at SHIP NAME."
   (urbit-helper-let-resource
    (urbit-graph-view-action "graph-leave"
                             `((leave ,resource)))))
@@ -245,6 +250,7 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
 ;; Store Actions
 ;;
 (defun urbit-graph-add (ship name graph mark)
+  "At SHIP NAME, add GRAPH with MARK."
   (urbit-helper-let-resource
    (urbit-graph-store-action
     `((add-graph ,resource (graph . ,graph) (mark . ,mark))))))
@@ -252,24 +258,15 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
 ;;
 ;; Hook Actions
 ;;
-;; TODO: graph.ts has some pending logic in here
 (defun urbit-graph-add-nodes (ship name nodes)
+  "To graph at SHIP NAME, add NODES."
+  (urbit-log "adding nodes: %s" nodes)
   (urbit-helper-let-resource
    (urbit-graph-hook-action
-    `((add-nodes ,resource (nodes . ,nodes))))
-   ;; Landscape manually feeds the add-nodes event into the update
-   ;; handler, but if we don't it still get's added through SSE /updates, so
-   ;; I'm going to leave this commmented out
-
-   ;; (urbit-graph-update-handler
-   ;;  `((graph-update
-   ;;     (add-nodes
-   ;;      ,(urbit-graph-make-resource (urbit-helper-desig ship)
-   ;;                                  name)
-   ;;      (nodes . ,nodes)))))
-   ))
+    `((add-nodes ,resource (nodes . ,nodes))))))
 
 (defun urbit-graph-add-node (ship name node)
+  "To graph at SHIP NAME, add NODE."
   (urbit-graph-add-nodes ship name
                          (let ((index (intern
                                        (alist-get 'index
@@ -277,6 +274,7 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
                            `((,index . ,node)))))
 
 (defun urbit-graph-remove-nodes (ship name indices)
+  "INDICES is a list of indexes to be removed from graph at SHIP NAME."
   (urbit-helper-let-resource
    (urbit-graph-hook-action `((remove-nodes ,resource (indices . indices))))))
 
@@ -304,6 +302,7 @@ Returns a list of nodes"
         nodes))))
 
 (aio-defun urbit-graph-get-keys ()
+  "Get a list of all graph store keys as resource symbols."
   (let ((keys
          (aio-await
           (urbit-http-scry "graph-store" "/keys"))))
