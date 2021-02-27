@@ -149,25 +149,44 @@ When a remove-nodes event is recieved, REMOVE-CALLBACK will be called with a lis
 ;;
 ;; Constructors
 ;;
-(defun urbit-graph-make-post (contents &optional parent-index child-index)
+(defun urbit-graph-make-post (contents &optional parent-index index)
   "Create a new post with CONTENTS.
-CONTENTS is a vector or list of content objects."
+CONTENTS is a vector or list of content objects.
+PARENT-INDEX is the index of its parent node
+INDEX is the index of this node. If not passed, it will be auto-generated."
   (let ((contents (if (vectorp contents)
                       contents
                     (vconcat contents))))
-    `((index . ,(concat "/" (urbit-helper-da-time)))
+    `((index . ,(concat (or parent-index "")
+                        (or index
+                            (concat "/" (urbit-helper-da-time)))))
       (author . ,(urbit-helper-ensig urbit-http-ship))
       (time-sent . ,(urbit-helper-milli-time))
       (signatures . [])
       (contents . ,contents)
       (hash . nil))))
 
+(defun urbit-graph-index-children (nodes)
+  "Convert all children nodes of a node into pairs of their index and node."
+  (mapcar
+   (lambda (node)
+     (urbit-log "node: %s" node)
+     (setf (alist-get 'children node)
+           (urbit-graph-index-children (alist-get 'children node)))
+     (cons (car (last (split-string (urbit-helper-alist-get-chain 'index
+                                                                  'post
+                                                                  node)
+                                    "/")))
+           node))
+   nodes))
+
 (defun urbit-graph-make-node (post &optional children)
-  "Make an urbit graph node."
+  "Make an urbit graph node with POST and CHILDREN."
   `((post . ,post)
-    (children . ,children)))
+    (children . ,(urbit-graph-index-children children))))
 
 (defun urbit-graph-make-resource (ship name)
+  "Make a resource object from SHIP NAME."
   `(resource (ship . ,ship)
              (name . ,name)))
 
