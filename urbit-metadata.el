@@ -48,6 +48,7 @@
     (if (not metadata-update) (urbit-log "Unknown metadata event: %s" event)
       (pcase metadata-update
         ((urbit-helper-match-key 'initial-group)
+         (setq urbit-metadata-associations nil)
          (urbit-metadata-handle-associations
           (alist-get 'associations val)))
         ((urbit-helper-match-key 'associations)
@@ -60,7 +61,6 @@
          (urbit-log "Unhandled metadata event: remove"))))))
 
 (defun urbit-metadata-handle-associations (data)
-  (urbit-log "handling associations")
   (dolist (association-pair data)
     (let* ((association (cdr association-pair))
            (app-name (intern (alist-get 'app-name association)))
@@ -83,13 +83,14 @@ e.g. /ship/~zod/group -> zod/group"
 ;;
 ;; Actions
 ;;
-(defun urbit-metadata-action (data &optional ok-callback err-callback)
+(defun urbit-metadata-action (action &optional ok-callback err-callback)
   (urbit-http-poke "metadata-push-hook"
                    "metadata-update"
                    action
                    ok-callback
                    err-callback))
 
+;; This seems to be deprecated. New channels are added with graph-create and the metadata seems to come automatically
 (defun urbit-metadata-add (app-name resource group title description date-created color module-name)
   (urbit-metadata-action
    `((add . ((group . ,group)
@@ -106,10 +107,11 @@ e.g. /ship/~zod/group -> zod/group"
                   (vip . ""))))))
 
 (defun urbit-metadata-remove (app-name resource group)
+  "Remove metadata at APP-NAME RESOURCE GROUP. Often used for deleting channels."
   (urbit-metadata-action
-   `(remove (group . group)
-            (resource (resource . resource)
-                      (app-name . app-name)))))
+   `((remove (group . ,group)
+             (resource (resource . ,resource)
+                       (app-name . ,app-name))))))
 
 (defun urbit-metadata-update (association new-metadata)
   (let ((metadata (urbit-helper-assign
