@@ -48,7 +48,6 @@
     (if (not metadata-update) (urbit-log "Unknown metadata event: %s" event)
       (pcase metadata-update
         ((urbit-helper-match-key 'initial-group)
-         (setq urbit-metadata-associations nil)
          (urbit-metadata-handle-associations
           (alist-get 'associations val)))
         ((urbit-helper-match-key 'associations)
