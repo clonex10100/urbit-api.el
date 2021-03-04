@@ -1,5 +1,8 @@
 * Urbit HTTP elisp API
 Connect your operating system with your personal server.
+
+[![awesome urbit badge](https://img.shields.io/badge/~-awesome%20urbit-lightgrey)](https://github.com/urbit/awesome-urbit)
+
 ** Install
 Get [[https://github.com/skeeto/emacs-aio][aio]] and [[https://github.com/tkf/emacs-request][request]] then use =M-x package-install-file= to install a
 [[https://github.com/clonex10100/urbit-api.el/releases][tarball]], or just clone the repo into your load path.
