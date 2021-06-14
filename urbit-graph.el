@@ -197,7 +197,7 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
 ;;
 (defun urbit-graph-store-action (action &optional ok-callback err-callback)
   (urbit-http-poke "graph-store"
-                   "graph-update"
+                   "graph-update-2"
                    action
                    ok-callback
                    err-callback))
@@ -210,7 +210,7 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
 
 (defun urbit-graph-hook-action (action &optional ok-callback err-callback)
   (urbit-http-poke "graph-push-hook"
-                   "graph-update"
+                   "graph-update-2"
                    action
                    ok-callback
                    err-callback))
