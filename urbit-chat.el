@@ -263,6 +263,22 @@
                              face urbit-chat-prompt-face
                              rear-nonsticky t)))))
 
+(defun urbit-chat-start (&optional resource)
+  (interactive)
+  (let ((read
+         (if resource resource
+           (completing-read "Choose a chat: " (urbit-metadata-get-app-graphs "chat" t)))))
+    (let* ((resource (urbit-graph-symbol-to-resource (intern read)))
+           (ship (car resource))
+           (name (cdr resource))
+           (buffer (concat "*urbit-chat-" ship "/" name)))
+      (if (get-buffer buffer) (switch-to-buffer buffer)
+        (progn
+          (pop-to-buffer buffer '((display-buffer-pop-up-window . inhibit-same-window)))
+          (urbit-chat-mode ship name))
+        ))))
+
+
 (aio-defun urbit-chat-mode (ship name)
   (kill-all-local-variables)
   (use-local-map urbit-chat-mode-map)
@@ -298,23 +314,14 @@
                 nil
                 'local-hook)))
   (run-mode-hooks 'urbit-chat-mode-hook))
-
-
 ;; TODO: cache keys so that starting chat's doesn't take so long
 ;; TODO: find a way to show group names with keys, only show chat keys
-(defun urbit-chat-start ()
-  (interactive)
-  (let ((read
-         (completing-read "Choose a chat: " (urbit-metadata-get-app-graphs "chat" t))))
-    (let* ((resource (urbit-graph-symbol-to-resource (intern read)))
-           (ship (car resource))
-           (name (cdr resource))
-           (buffer (concat "*urbit-chat-" ship "/" name)))
-      (if (get-buffer buffer) (switch-to-buffer buffer)
-        (progn
-          (switch-to-buffer buffer)
-          (urbit-chat-mode ship name))))))
 
+(defun urbit-chat-resource (resource)
+  (interactive)
+  (unless (not resource)
+    (if (member (intern resource) (urbit-metadata-get-app-graphs "chat" t))
+        (urbit-chat-start resource))))
 ;; TODO: Add a way to load more past messages
 
 (provide 'urbit-chat)
