@@ -197,7 +197,10 @@
 (defun urbit-chat-handle-nodes (nodes buffer)
   (with-current-buffer buffer
     (dolist (node nodes)
-      (urbit-chat-insert-message (urbit-chat-format-node node)))))
+      (unless (urbit-helper-alist-get-chain 'content 'post nodes)
+        (urbit-chat-format-node node)
+        (urbit-chat-insert-message
+         (urbit-chat-format-node node))))))
 
 (defun urbit-chat-insert-message (message)
   (save-excursion
@@ -274,7 +277,7 @@
            (buffer (concat "*urbit-chat-" ship "/" name)))
       (if (get-buffer buffer) (switch-to-buffer buffer)
         (progn
-          (pop-to-buffer buffer '((display-buffer-pop-up-window . inhibit-same-window)))
+          (switch-to-buffer buffer nil t)
           (urbit-chat-mode ship name))
         ))))
 
@@ -287,18 +290,20 @@
   (setq-local urbit-chat-ship ship)
   (setq-local urbit-chat-chat name)
 
-  (urbit-chat-update-prompt)
-
-  (let ((buffer (current-buffer)))
-    (urbit-chat-handle-nodes
-     (sort (aio-await
+  (let ((buffer (current-buffer))
+        (nodes (aio-await
             (urbit-graph-get-newest ship
                                     name
-                                    urbit-chat-initial-messages))
+                                    urbit-chat-initial-messages))))
+    (urbit-chat-update-prompt)
+
+    (urbit-chat-handle-nodes
+     (sort nodes
            (lambda (a b)
              (< (car a)
                 (car b))))
      buffer)
+
     (goto-char (point-max))
     (recenter -1)
     (let ((resource
