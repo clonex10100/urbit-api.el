@@ -197,10 +197,19 @@
 (defun urbit-chat-handle-nodes (nodes buffer)
   (with-current-buffer buffer
     (dolist (node nodes)
-      (unless (urbit-helper-alist-get-chain 'content 'post nodes)
-        (urbit-chat-format-node node)
-        (urbit-chat-insert-message
-         (urbit-chat-format-node node))))))
+      (condition-case nil
+          (if (urbit-helper-alist-get-chain 'contents 'post node)
+              (urbit-chat-insert-message
+               (urbit-chat-format-node node)))
+        (error (progn
+              (urbit-log "deleted: %s" (prin1-to-string node))
+              (urbit-chat-insert-message
+               (concat (urbit-chat-color-patp "sampel-palnet") ": "
+                       (urbit-chat-add-string-properties
+                        "deleted"
+                        `(face
+                          (:foreground "red")))
+                       "\n"))))))))
 
 (defun urbit-chat-insert-message (message)
   (save-excursion
@@ -292,9 +301,9 @@
 
   (let ((buffer (current-buffer))
         (nodes (aio-await
-            (urbit-graph-get-newest ship
-                                    name
-                                    urbit-chat-initial-messages))))
+                (urbit-graph-get-newest ship
+                                        name
+                                        urbit-chat-initial-messages))))
     (urbit-chat-update-prompt)
 
     (urbit-chat-handle-nodes
