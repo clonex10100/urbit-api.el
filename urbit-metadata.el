@@ -132,9 +132,11 @@ e.g. /ship/~zod/group -> zod/group"
          (urbit-helper-filter-map
           (lambda (graph)
             (when (string=
-                   (urbit-helper-alist-get-chain 'module
-                                                 'metadata
-                                                 graph)
+                   (urbit-helper-alist-get-chain
+                    'graph
+                    'config
+                    'metadata
+                    graph)
                    "chat")
               (urbit-metadata-resource-to-graph-resource-symbol (alist-get 'resource graph))))
           (alist-get 'graph urbit-metadata-associations))))
