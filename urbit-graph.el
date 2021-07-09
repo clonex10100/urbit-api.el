@@ -359,8 +359,6 @@ Returns a list of nodes"
            name
            (urbit-graph-index-to-ud index))))
 
-
-
 (provide 'urbit-graph)
 
 ;;; urbit-graph.el ends here

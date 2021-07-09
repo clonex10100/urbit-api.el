@@ -127,7 +127,7 @@ e.g. /ship/~zod/group -> zod/group"
 ;;
 ;; urbit-metadata-associations queries
 ;;
-(defun urbit-metadata-get-app-graphs (app &optional joined-only)
+(defun urbit-metadata-get-app-graphs (app &optional joined-only mine-only)
   (let ((resources
          (urbit-helper-filter-map
           (lambda (graph)
@@ -144,6 +144,16 @@ e.g. /ship/~zod/group -> zod/group"
         (seq-filter
          (lambda (resource)
            (memq resource urbit-graph-keys))
+         resources)
+      resources)
+    (if mine-only
+        (seq-filter
+         (lambda (resource)
+           (let* ((res (urbit-graph-symbol-to-resource resource))
+                  (name (cdr res))
+                  (ship (car res)))
+
+             (and (not (s-prefix? "dm--" name)) (string= "littel-wolfur" ship))))
          resources)
       resources)))
 
