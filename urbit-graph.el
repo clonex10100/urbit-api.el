@@ -197,7 +197,7 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
 ;;
 (defun urbit-graph-store-action (action &optional ok-callback err-callback)
   (urbit-http-poke "graph-store"
-                   "graph-update"
+                   "graph-update-2"
                    action
                    ok-callback
                    err-callback))
@@ -210,7 +210,7 @@ INDEX is the index of this node. If not passed, it will be auto-generated."
 
 (defun urbit-graph-hook-action (action &optional ok-callback err-callback)
   (urbit-http-poke "graph-push-hook"
-                   "graph-update"
+                   "graph-update-2"
                    action
                    ok-callback
                    err-callback))
@@ -320,7 +320,7 @@ Returns a list of nodes"
 (defun urbit-graph-get-newest (ship name count &optional index)
   (urbit-helper-let-if-nil ((index ""))
     (urbit-graph-get-wrapper
-     (format "/newest/%s/%s/%s%s"
+     (format "/graph/%s/%s/node/siblings/newest/lone/%s%s"
              (urbit-helper-ensig ship)
              name
              count
@@ -329,7 +329,7 @@ Returns a list of nodes"
 (defun urbit-graph-get-older-siblings (ship name count &optional index)
   (urbit-helper-let-if-nil ((index ""))
     (urbit-graph-get-wrapper
-     (format "/node-siblings/older/%s/%s/%s%s"
+     (format "/graph/%s/%s/node/siblings/older/lone/%s%s"
              (urbit-helper-ensig ship)
              name
              count
@@ -338,7 +338,7 @@ Returns a list of nodes"
 (defun urbit-graph-get-younger-siblings (ship name count &optional index)
   (urbit-helper-let-if-nil ((index ""))
     (urbit-graph-get-wrapper
-     (format "/node-siblings/younger/%s/%s/%s%s"
+     (format "/graph/%s/%s/node/siblings/younger/lone/%s%s"
              (urbit-helper-ensig ship)
              name
              count
@@ -354,11 +354,11 @@ Returns a list of nodes"
 
 (defun urbit-graph-get-node (ship name index)
   (urbit-graph-get-wrapper
-   (format "/node/%s/%s%s"
+
+   (format "/graph/%s/%s/node/index/kith%s"
            (urbit-helper-ensig ship)
            name
            (urbit-graph-index-to-ud index))))
-
 
 
 (provide 'urbit-graph)

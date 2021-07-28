@@ -119,7 +119,7 @@ Return a promise resolving to either '(ok) or '(err)"
                   (setq urbit-http-ship (match-string 1 urbit-http--cookie))
                   (funcall callback 'ok)))
       :error (cl-function
-              (lambda (&rest args &key error-thrown &allow-oter-keys)
+              (lambda (&rest args &key error-thrown &allow-other-keys)
                 (urbit-log "Http Connect Error: %s" error-thrown)
                 (funcall callback 'error))))
     promise))
@@ -154,7 +154,7 @@ Uses `urbit-http--request-cookie-jar' for authentication."
                 (lambda (&key data &allow-other-keys)
                   (funcall callback data)))
       :error (cl-function
-              (lambda (&rest args &key error-thrown &allow-oter-keys)
+              (lambda (&rest args &key error-thrown &allow-other-keys)
                 (funcall callback error-thrown))))
     promise))
 

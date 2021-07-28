@@ -175,6 +175,25 @@
                 ((and (app caar 'text)
                       (app cdar text))
                  text)
+                ((and (app caar 'reference)
+                      (app cdar reference))
+                 (let-alist reference
+                   (let* ((resource
+                           (urbit-graph-symbol-to-resource
+                            (urbit-metadata-resource-to-graph-resource-symbol .graph.graph)))
+                          (node (aio-wait-for
+                                 (urbit-graph-get-node (car resource) (cdr resource) .graph.index)))
+                          (kids (alist-get 'children (car node)))
+                          (youngest (assoc 1 (alist-get 'children (car kids))))
+                          (final-node (if youngest (assoc-default
+                                                    (length youngest) youngest)
+                                        (car node))
+                                      )
+                          )
+(condition-case ex
+    (urbit-chat-format-reference final-node)
+    (error "!!REF-ERROR!!"))
+)))
                 ((and (app caar 'url)
                       (app cdar url))
                  (concat " " (urbit-chat-format-url url) " "))
@@ -187,14 +206,54 @@
 (defun urbit-chat-format-node (node)
   (let ((post (alist-get 'post node)))
     (let-alist post
-      (concat (urbit-chat-color-patp .author) ": "
-              (urbit-chat-format-contents .contents)
-              "\n"))))
+
+      (concat
+
+       (urbit-chat-color-patp .author) ": "
+       (urbit-chat-format-contents .contents)
+       "\n"))))
+
+(defun urbit-chat-format-reference (node)
+  (let ((post (alist-get 'post node)))
+    (let-alist post
+      (concat
+       (urbit-chat-add-string-properties
+        "\n|-----> "
+        `(face
+          (:foreground "#83898d")))
+       "("
+       (urbit-chat-color-patp .author)
+       ")\n"
+
+       (urbit-chat-add-string-properties
+        "|>>> "
+        `(face
+          (:foreground "#83898d")))
+       (urbit-chat-format-contents .contents)
+       (urbit-chat-add-string-properties
+        "\n|<-----\n"
+        `(face
+          (:foreground "#83898d")))))))
 
 (defun urbit-chat-handle-nodes (nodes buffer)
   (with-current-buffer buffer
     (dolist (node nodes)
-      (urbit-chat-insert-message (urbit-chat-format-node node)))))
+
+      (condition-case err
+          (if (urbit-helper-alist-get-chain 'contents 'post node)
+              (urbit-chat-insert-message
+               (urbit-chat-format-node node)))
+        (error (progn
+                 ;; (message err)
+                 (urbit-log "deleted: %s" (prin1-to-string node))
+                 (urbit-chat-insert-message
+                  (concat (urbit-chat-color-patp "sampel-palnet") ": "
+                          (urbit-chat-add-string-properties
+                           "deleted"
+                           `(face
+                             (:foreground "red")))
+                          "\n"))))))))
+
 
 (defun urbit-chat-insert-message (message)
   (save-excursion
@@ -260,6 +319,22 @@
                              face urbit-chat-prompt-face
                              rear-nonsticky t)))))
 
+(defun urbit-chat-start (&optional resource)
+  (interactive)
+  (let ((read
+         (if resource resource
+           (completing-read "Choose a chat: " (urbit-metadata-get-app-graphs "chat" t)))))
+    (let* ((resource (urbit-graph-symbol-to-resource (intern read)))
+           (ship (car resource))
+           (name (cdr resource))
+           (buffer (concat "*urbit-chat-" ship "/" name)))
+      (if (get-buffer buffer) (switch-to-buffer buffer)
+        (progn
+          (switch-to-buffer buffer nil t)
+          (urbit-chat-mode ship name))
+        ))))
+
+
 (aio-defun urbit-chat-mode (ship name)
   (kill-all-local-variables)
   (use-local-map urbit-chat-mode-map)
@@ -268,18 +343,20 @@
   (setq-local urbit-chat-ship ship)
   (setq-local urbit-chat-chat name)
 
-  (urbit-chat-update-prompt)
+  (let ((buffer (current-buffer))
+        (nodes (aio-await
+                (urbit-graph-get-newest ship
+                                        name
+                                        urbit-chat-initial-messages))))
+    (urbit-chat-update-prompt)
 
-  (let ((buffer (current-buffer)))
     (urbit-chat-handle-nodes
-     (sort (aio-await
-            (urbit-graph-get-newest ship
-                                    name
-                                    urbit-chat-initial-messages))
+     (sort nodes
            (lambda (a b)
              (< (car a)
                 (car b))))
      buffer)
+
     (goto-char (point-max))
     (recenter -1)
     (let ((resource
@@ -296,22 +373,83 @@
                 'local-hook)))
   (run-mode-hooks 'urbit-chat-mode-hook))
 
+  (defun ct/send-notification (title msg)
+    (let ((notifier-path (executable-find "terminal-notifier")))
+      (start-process
+       "Message Alert"
+       "*Message Alert*" ; use `nil` to not capture output; this captures output in background
+       notifier-path
+       "-message" msg
+       "-title" title
+       "-sender" "dev.hmiller.port"
+       "-activate" "org.gnu.Emacs")))
+  (defun ct/message-display-native (resource-string body)
+    (ct/send-notification
+     (format "Message in %s" resource-string) ; Title
+     (format "%s" body)))
 
+(defun urbit-message-update-handler (event)
+  "Handle graph-update EVENT."
+  (let ((graph-update (alist-get 'graph-update event)))
+    (if (not graph-update)
+        (urbit-log
+         "Unknown graph event: %s"
+         event)
+      (let* ((update-type (caar graph-update))
+             (update (cdar graph-update)))
+        (if (or (eq update-type 'add-nodes)
+                (eq update-type 'remove-nodes))
+            (let-alist
+                update
+              (let* ((resource-symbol (urbit-graph-resource-to-symbol
+                                       .resource))
+                     (resource-name (symbol-name resource-symbol))
+                     (ship .resource.ship)
+                     (name .resource.name)
+                     (buffer (concat "*urbit-chat-" ship "/" name))
+                     (resource-string (urbit-graph-pretty-resource
+                                       .resource)))
+                (pcase
+                    update-type
+                  ('add-nodes
+                   (let ((nodes (alist-get 'nodes update)))
+                     (dolist (node nodes)
+                       (let ((body (urbit-chat-format-node node)))
+                         (message resource-name)
+                         (if (member
+                              resource-name
+                              urbit-tracked-graphs)
+                             (ct/message-display-native resource-name body))
+                         (when (get-buffer buffer)
+                             (condition-case err
+                                 (if err
+                                     (progn
+                                       (urbit-messages "error for %s | %s" resource-string body)
+                                       (print err))
+                                   (with-current-buffer buffer
+                                     (save-excursion
+                                       (let ((inhibit-read-only t))
+                                         (delete-region (point-min) (point-max)))
+                                       (urbit-graph-stop-watch resource-symbol)
+                                       (urbit-chat-mode ship name))
+                                     (if
+                                         (> 500 (car (page--count-lines-page)))
+                                         (message (concat "re-watching " (prin1-to-string buffer))))))
+                               (error resource-symbol)))
+                         (setq unread-groups (cl-adjoin resource-name unread-groups))
+                         (unless (member resource-name urbit-ignored-graphs)
+                           (urbit-messages
+                            "%s: %s"
+                            resource-string
+                            body))))))))))))))
 ;; TODO: cache keys so that starting chat's doesn't take so long
 ;; TODO: find a way to show group names with keys, only show chat keys
-(defun urbit-chat-start ()
-  (interactive)
-  (let ((read
-         (completing-read "Choose a chat: " (urbit-metadata-get-app-graphs "chat" t))))
-    (let* ((resource (urbit-graph-symbol-to-resource (intern read)))
-           (ship (car resource))
-           (name (cdr resource))
-           (buffer (concat "*urbit-chat-" ship "/" name)))
-      (if (get-buffer buffer) (switch-to-buffer buffer)
-        (progn
-          (switch-to-buffer buffer)
-          (urbit-chat-mode ship name))))))
 
+(defun urbit-chat-resource (resource)
+  (interactive)
+  (unless (not resource)
+    (if (member (intern resource) (urbit-metadata-get-app-graphs "chat" t))
+        (urbit-chat-start resource))))
 ;; TODO: Add a way to load more past messages
 
 (provide 'urbit-chat)
